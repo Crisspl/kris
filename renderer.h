@@ -47,11 +47,14 @@ namespace kris
 			return m_defaultImage.get();
 		}
 
-		Renderer(refctd<nbl::video::ILogicalDevice>&& dev, uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) :
-			m_device(std::move(dev)),
-			m_fence(m_device->createSemaphore(FenceInitialVal)),
-			m_lifetimeTracker(m_device.get())
+		Renderer() = default;
+
+		void init(refctd<nbl::video::ILogicalDevice>&& dev, uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
 		{
+			m_device = std::move(dev);
+			m_fence = m_device->createSemaphore(FenceInitialVal);
+			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
+
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
 				// cmd pool
@@ -108,6 +111,8 @@ namespace kris
 			return ds;
 		}
 
+		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
+
 		CommandRecorder createCommandRecorder()
 		{
 			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
@@ -122,7 +127,7 @@ namespace kris
 
 			m_cmdbufPasses[pass] = std::move(result.cmdbuf);
 			nbl::video::ISemaphore::SWaitInfo wi;
-			m_lifetimeTracker.latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
+			m_lifetimeTracker->latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
 		}
 
 		bool beginFrame()
@@ -167,7 +172,7 @@ namespace kris
 				m_cmdbufPasses[i] = nullptr;
 			}
 
-			m_lifetimeTracker.poll();
+			m_lifetimeTracker->poll();
 
 			m_currentFrameVal++;
 			return true;
@@ -205,7 +210,8 @@ namespace kris
 
 		refctd<nbl::video::IGPUCommandPool> m_cmdPool[FramesInFlight];
 		refctd<nbl::video::IDescriptorPool> m_descPool[FramesInFlight];
-		nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false> m_lifetimeTracker;
+		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
+		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
 		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[Material::NumPasses];
 

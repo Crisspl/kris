@@ -5,6 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
+//#include "SimpleWindowedApplication.hpp"
 #include <Windows.h>
 
 using namespace nbl;
@@ -17,8 +18,6 @@ using namespace video;
 #include "resource_allocator.h"
 #include "renderer.h"
 #include "material.h"
-
-kris::ResourceAllocator g_ResourceAlctr;
 
 struct GeometryCreator
 {
@@ -338,7 +337,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 #define RMAP_INDEX_OUTPUT_BUF kris::FirstUsableResourceMapSlot
 			static_assert(RMAP_INDEX_OUTPUT_BUF != kris::DefaultResourceMapSlot);
 
-			kris::Renderer renderer(kris::refctd<nbl::video::ILogicalDevice>(device), queueFamily, &g_ResourceAlctr, physDev->getHostVisibleMemoryTypeBits());
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(device), queueFamily, &m_ResourceAlctr, physDev->getHostVisibleMemoryTypeBits());
 
 			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
 			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
@@ -355,7 +354,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// the usages on an `IGPUBuffer` are crucial to specify correctly.
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
-				buffAllocation = g_ResourceAlctr.allocBuffer(device.get(), std::move(params), physDev->getHostVisibleMemoryTypeBits());
+				buffAllocation = m_ResourceAlctr.allocBuffer(device.get(), std::move(params), physDev->getHostVisibleMemoryTypeBits());
 				smart_refctd_ptr<IGPUBuffer> outputBuff = kris::refctd<nbl::video::IGPUBuffer>(buffAllocation->getBuffer());
 				if (!outputBuff)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
@@ -363,42 +362,153 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
 				outputBuff->setObjectDebugName("My Output Buffer");
 			}
+
 #if 0
+			auto renderpass = m_Renderer.createRenderpass(device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
 			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
+			auto gfxlayout = device->createPipelineLayout({});
 			{
 				auto cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
+				
+				kris::refctd<kris::BufferResource> vtxbuf;
+				{
+					auto& vtxbuf_data = cubedata.bindings[0].buffer;
 
-				auto gfxlayout = device->createPipelineLayout({});
-				// TODO shaders
+					nbl::video::IGPUBuffer::SCreationParams ci = {};
+					ci.size = vtxbuf_data->getSize();
+					ci.usage = nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
+					vtxbuf = m_ResourceAlctr.allocBuffer(device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
+					void* ptr = vtxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
+					memcpy(ptr, vtxbuf_data->getPointer(), vtxbuf_data->getSize());
+					vtxbuf->unmap();
+				}
+				kris::refctd<kris::BufferResource> idxbuf;
+				{
+					auto& idxbuf_data = cubedata.indexBuffer.buffer;
+
+					nbl::video::IGPUBuffer::SCreationParams ci = {};
+					ci.size = idxbuf_data->getSize();
+					ci.usage = nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT;
+					idxbuf = m_ResourceAlctr.allocBuffer(device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
+					void* ptr = idxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
+					memcpy(ptr, idxbuf_data->getPointer(), idxbuf_data->getSize());
+					idxbuf->unmap();
+				}
+
+				nbl::asset::SBlendParams blendParams = {};
+				blendParams.blendParams[0u].srcColorFactor = nbl::asset::EBF_ONE;
+				blendParams.blendParams[0u].dstColorFactor = nbl::asset::EBF_ZERO;
+				blendParams.blendParams[0u].colorBlendOp = nbl::asset::EBO_ADD;
+				blendParams.blendParams[0u].srcAlphaFactor = nbl::asset::EBF_ONE;
+				blendParams.blendParams[0u].dstAlphaFactor = nbl::asset::EBF_ZERO;
+				blendParams.blendParams[0u].alphaBlendOp = nbl::asset::EBO_ADD;
+				blendParams.blendParams[0u].colorWriteMask = 0xfU;
+				nbl::asset::SRasterizationParams rasterParams;
+				rasterParams.polygonMode = nbl::asset::EPM_FILL;
+				rasterParams.faceCullingMode = nbl::asset::EFCM_NONE;
+				rasterParams.depthWriteEnable = true;
+
+				const char* vs_source = 
+					R"(
+#pragma wave shader_stage(vertex)
+
+// set 1, binding 0
+[[vk::binding(0, 1)]]
+cbuffer CameraData
+{
+    SBasicViewParameters params;
+};
+
+struct VSInput
+{
+	[[vk::location(0)]] float3 position : POSITION;
+	[[vk::location(1)]] float4 color : COLOR;
+	[[vk::location(2)]] float2 uv : TEXCOORD;
+	[[vk::location(3)]] float3 normal : NORMAL;
+};
+
+struct PSInput
+{
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+};
+
+PSInput VSMain(VSInput input)
+{
+    PSInput output;
+    output.position = mul(params.MVP, float4(input.position, 1.0));
+    output.color = input.color;
+    
+    return output;
+})";
+				const char* ps_source =
+					R"(
+#pragma wave shader_stage(fragment)
+
+struct PSInput
+{
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+};
+
+float4 main(PSInput input) : SV_TARGET
+{
+	return input.color;
+}
+)";
+				kris::refctd<nbl::video::IGPUShader> vs_shader;
+				kris::refctd<nbl::video::IGPUShader> ps_shader;
+				{
+					kris::refctd<nbl::asset::ICPUShader> vs_cpu;
+					kris::refctd<nbl::asset::ICPUShader> ps_cpu;
+
+					kris::refctd<nbl::asset::IShaderCompiler> compiler = nbl::core::make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+
+					CHLSLCompiler::SOptions options = {};
+					// really we should set it to `ESS_COMPUTE` since we know, but we'll test the `#pragma` handling fur teh lulz
+					options.stage = nbl::asset::IShader::E_SHADER_STAGE::ESS_VERTEX;
+					// want as much debug as possible
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+					// this lets you source-level debug/step shaders in renderdoc
+					if (physDev->getLimits().shaderNonSemanticInfo)
+						options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
+					// if you don't set the logger and source identifier you'll have no meaningful errors
+					options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
+					options.preprocessorOptions.logger = m_logger.get();
+					//options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
+
+					vs_cpu = compiler->compileToSPIRV(vs_source, options);
+
+					options.stage = nbl::asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT;
+					ps_cpu = compiler->compileToSPIRV(ps_source, options);
+
+					vs_shader = device->createShader(vs_cpu.get());
+					ps_shader = device->createShader(ps_cpu.get());
+				}
+
 				IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader = mainPipelineShaders[0u].get() },
-				{.shader = mainPipelineShaders[1u].get() },
+				{.shader = vs_shader.get()},
+				{.shader = ps_shader.get()},
 				};
 
 				nbl::video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
 				params[0].layout = gfxlayout.get();
 				params[0].shaders = specInfo;
 				params[0].cached = {
-					.vertexInput = {},
-					.primitiveAssembly = {
-						.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
-					},
-					.rasterization = {
-						.polygonMode = EPM_FILL,
-						.faceCullingMode = EFCM_NONE,
-						.depthWriteEnable = false,
-					},
+					.vertexInput = cubedata.inputParams,
+					.primitiveAssembly = cubedata.assemblyParams,
+					.rasterization = rasterParams,
 					.blend = blendParams,
 				};
-				params[0].renderpass = compatibleRenderPass.get();
+				params[0].renderpass = renderpass.get();
 
-				device->createGraphicsPipelines()
+				device->createGraphicsPipelines(nullptr, params, &gfx);
 			}
 #endif
 
 			// set rmap
 			{
-				renderer.resourceMap[RMAP_INDEX_OUTPUT_BUF] = buffAllocation.get();
+				m_Renderer.resourceMap[RMAP_INDEX_OUTPUT_BUF] = buffAllocation.get();
 			}
 
 			auto mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(1U << kris::Material::BasePass);
@@ -406,7 +516,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			{
 				for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
 				{
-					kris::DescriptorSet ds = renderer.createDescriptorSet(dsLayout.get());
+					kris::DescriptorSet ds = m_Renderer.createDescriptorSet(dsLayout.get());
 					mtl->m_ds3[i] = std::move(ds);
 				}
 
@@ -422,29 +532,29 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			if (!buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
 				return logFail("Failed to map the Device Memory!\n");
 
-			renderer.beginFrame();
+			m_Renderer.beginFrame();
 
 			{
-				kris::CommandRecorder cmdrec = renderer.createCommandRecorder();
+				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder();
 
 				cmdrec.cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 				//cmdrec.cmdbuf->bindComputePipeline(pipeline.get());
 				//cmdrec.cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
 				//cmdrec.bindDescriptorSet(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0U, &ds);
 				//cmdrec.cmdbuf->dispatch(WorkgroupCount, 1, 1);
-				cmdrec.dispatch(device.get(), renderer.getCurrentFrame(), kris::Material::BasePass, &renderer.resourceMap, mtl.get(), WorkgroupCount, 1, 1);
+				cmdrec.dispatch(device.get(), m_Renderer.getCurrentFrame(), kris::Material::BasePass, &m_Renderer.resourceMap, mtl.get(), WorkgroupCount, 1, 1);
 				cmdrec.cmdbuf->endDebugMarker();
 
-				renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
+				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
 			}
 
 			m_api->startCapture();
-			renderer.submit(device->getQueue(queueFamily, 0), asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT);
+			m_Renderer.submit(device->getQueue(queueFamily, 0), asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT);
 			m_api->endCapture();
 
-			renderer.blockForCurrentFrame(); // wait to read CS result on CPU
+			m_Renderer.blockForCurrentFrame(); // wait to read CS result on CPU
 
-			renderer.endFrame();
+			m_Renderer.endFrame();
 
 			buffAllocation->invalidate(device.get());
 			auto buffData = reinterpret_cast<const uint32_t*>(buffAllocation->getMappedPtr());
@@ -470,6 +580,8 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 		bool keepRunning() override {return false;}
 
 	private:
+		kris::ResourceAllocator m_ResourceAlctr;
+		kris::Renderer m_Renderer;
 		smart_refctd_ptr<nbl::video::CVulkanConnection> m_api;
 };
 
