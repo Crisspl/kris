@@ -6,6 +6,14 @@
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 //#include "SimpleWindowedApplication.hpp"
+
+#include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
+#include "CEventCallback.hpp"
+
+#include "CCamera.hpp"
+#include "SBasicViewParameters.hlsl"
+
 #include <Windows.h>
 
 using namespace nbl;
@@ -174,76 +182,200 @@ struct GeometryCreator
 	}
 };
 
+class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
+{
+	using base_t = CDefaultSwapchainFramebuffers;
+
+public:
+	template<typename... Args>
+	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
+	{
+		const IPhysicalDevice::SImageFormatPromotionRequest req = {
+			.originalFormat = _desiredDepthFormat,
+			.usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
+		};
+		m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
+
+		const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+			{{
+				{
+					.format = m_depthFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+			/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+			/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+			/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
+			/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
+		}},
+		IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+		};
+		m_params.depthStencilAttachments = depthAttachments;
+
+		static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			m_params.subpasses[0],
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
+		m_params.subpasses = subpasses;
+	}
+
+protected:
+	inline bool onCreateSwapchain_impl(const uint8_t qFam) override
+	{
+		auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+
+		const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
+		const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
+		auto image = device->createImage({ IImage::SCreationParams{
+			.type = IGPUImage::ET_2D,
+			.samples = IGPUImage::ESCF_1_BIT,
+			.format = depthFormat,
+			.extent = {sharedParams.width,sharedParams.height,1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
+		} });
+
+		device->allocate(image->getMemoryReqs(), image.get());
+
+		m_depthBuffer = device->createImageView({
+			.flags = IGPUImageView::ECF_NONE,
+			.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+			.image = std::move(image),
+			.viewType = IGPUImageView::ET_2D,
+			.format = depthFormat,
+			.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
+			});
+
+		const auto retval = base_t::onCreateSwapchain_impl(qFam);
+		m_depthBuffer = nullptr;
+		return retval;
+	}
+
+	inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
+	{
+		params.depthStencilAttachments = &m_depthBuffer.get();
+		return m_device->createFramebuffer(std::move(params));
+	}
+
+	E_FORMAT m_depthFormat;
+	// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
+	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
+};
+
 // For our Compute Shader
 constexpr uint32_t WorkgroupSize = 256;
 constexpr uint32_t WorkgroupCount = 2048;
 
 // this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
-class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
+class HelloComputeApp final : public examples::SimpleWindowedApplication
 {
-		using base_t = application_templates::MonoSystemMonoLoggerApplication;
+	using device_base_t = examples::SimpleWindowedApplication;
+	using clock_t = std::chrono::steady_clock;
+
+	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
+
 	public:
-		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-		using base_t::base_t;
+		inline HelloComputeApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
+		}
+
+		virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getRequiredDeviceFeatures();
+			//retval.geometryShader = true;
+			return retval;
+		}
+
+		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+		{
+			if (!m_surface)
+			{
+				{
+					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+					nbl::ui::IWindow::SCreationParams params = {};
+					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.width = WIN_W;
+					params.height = WIN_H;
+					params.x = 32;
+					params.y = 32;
+					params.flags = ui::IWindow::ECF_HIDDEN | nbl::ui::IWindow::ECF_BORDERLESS | nbl::ui::IWindow::ECF_RESIZABLE;
+					params.windowCaption = "GeometryCreatorApp";
+					params.callback = windowCallback;
+					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+				}
+
+				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<nbl::ui::IWindowWin32>(m_window));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
+			}
+
+			if (m_surface)
+				return { {m_surface->getSurface()/*,EQF_NONE*/} };
+
+			return {};
+		}
 
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
-			// Remember to call the base class initialization!
-			if (!base_t::onAppInitialized(std::move(system)))
+			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
-			// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
-			// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
-			
-			// Only Timeline Semaphores are supported in Nabla, there's no fences or binary semaphores.
-			// Swapchains run on adaptors with empty submits that make them look like they work with Timeline Semaphores,
-			// which has important side-effects we'll cover in another example.
-			constexpr auto FinishedValue = 45;
-			smart_refctd_ptr<ISemaphore> progress;
 
-			// A `nbl::video::DeviceMemoryAllocator` is an interface to implement anything that can dish out free memory range to bind to back a `nbl::video::IGPUBuffer` or a `nbl::video::IGPUImage`
-			// The Logical Device itself implements the interface and behaves as the most simple allocator, it will create a new `nbl::video::IDeviceMemoryAllocation` every single time.
-			// We will cover allocators and suballocation in a later example.
-			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-			// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
-			{
-				// You generally want to default initialize any parameter structs
-				nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-				// generally you want to make your life easier during development
-				apiFeaturesToEnable.validations = true;
-				apiFeaturesToEnable.synchronizationValidation = true;
-				// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
-				apiFeaturesToEnable.debugUtils = true;
-				// create our Vulkan instance
-				if (!(m_api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
-					return logFail("Failed to crate an IAPIConnection!");
-			}
-
-			// We won't go deep into performing physical m_device selection in this example, we'll take any m_device with a compute queue.
-			// Nabla has its own set of required baseline Vulkan features anyway, it won't report any m_device that doesn't meet them.
-			nbl::video::IPhysicalDevice* physDev = nullptr;
-			ILogicalDevice::SCreationParams params = {};
-			for (auto physDevIt= m_api->getPhysicalDevices().begin(); physDevIt!= m_api->getPhysicalDevices().end(); physDevIt++)
-			{
-				const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
-				// this is the only "complicated" part, we want to create a queue that supports compute pipelines
-				for (auto i=0; i<familyProps.size(); i++)
-				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+			// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
+			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+				// wipe-transition of Color to ATTACHMENT_OPTIMAL
 				{
-					physDev = *physDevIt;
-					m_queueFamily = i;
-					params.queueParams[m_queueFamily].count = 1;
-					break;
+					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.dstSubpass = 0,
+					.memoryBarrier = {
+					// last place where the depth can get modified in previous frame
+					.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					// destination needs to wait as early as possible
+					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+					// because of depth test needing a read and a write
+					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
 				}
-			}
-			if (!physDev)
-				return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
+				// leave view offsets and flags default
+			},
+				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
+				{
+					.srcSubpass = 0,
+					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.memoryBarrier = {
+					// last place where the depth can get modified
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					// spec says nothing is needed when presentation is the destination
+				}
+				// leave view offsets and flags default
+			},
+			IGPURenderpass::SCreationParams::DependenciesEnd
+			};
 
-			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical m_device
-			m_device = physDev->createLogicalDevice(std::move(params));
-			if (!m_device)
-				return logFail("Failed to create a Logical Device!");
+			// TODO: promote the depth format if D16 not supported, or quote the spec if there's guaranteed support for it
+			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+
+			auto* renderpass = scResources->getRenderpass();
+
+			if (!renderpass)
+				return logFail("Failed to create Renderpass!");
+
+			auto gQueue = getGraphicsQueue();
+			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
+
+			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
+			m_surface->recreateSwapchain();
 
 			// A word about `nbl::asset::IAsset`s, whenever you see an `nbl::asset::ICPUSomething` you can be sure an `nbl::video::IGPUSomething exists, and they both inherit from `nbl::asset::ISomething`.
 			// The convention is that an `ICPU` object represents a potentially Mutable (and in the past, Serializable) recipe for creating an `IGPU` object, and later examples will show automated systems for doing that.
@@ -282,7 +414,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// want as much debug as possible
 				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
 				// this lets you source-level debug/step shaders in renderdoc
-				if (physDev->getLimits().shaderNonSemanticInfo)
+				if (m_physicalDevice->getLimits().shaderNonSemanticInfo)
 					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
 				// if you don't set the logger and source identifier you'll have no meaningful errors
 				options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
@@ -332,7 +464,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 #define RMAP_INDEX_OUTPUT_BUF kris::FirstUsableResourceMapSlot
 			static_assert(RMAP_INDEX_OUTPUT_BUF != kris::DefaultResourceMapSlot);
 
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_queueFamily, &m_ResourceAlctr, physDev->getHostVisibleMemoryTypeBits());
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_queueFamily, &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 
 			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
 			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
@@ -349,7 +481,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// the usages on an `IGPUBuffer` are crucial to specify correctly.
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
-				m_buffAllocation = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(params), physDev->getHostVisibleMemoryTypeBits());
+				m_buffAllocation = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(params), m_physicalDevice->getHostVisibleMemoryTypeBits());
 				smart_refctd_ptr<IGPUBuffer> outputBuff = kris::refctd<nbl::video::IGPUBuffer>(m_buffAllocation->getBuffer());
 				if (!outputBuff)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
@@ -529,12 +661,44 @@ float4 main(PSInput input) : SV_TARGET
 			// We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
 			//m_device->waitIdle();
 
+			// camera
+			{
+				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
+				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+			}
+
+			m_winMgr->show(m_window.get());
+			oracle.reportBeginFrameRecord();
+
 			return true;
 		}
 
 		// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
 		void workLoopBody() override 
 		{
+			//m_inputSystem->getDefaultMouse(&mouse);
+			//m_inputSystem->getDefaultKeyboard(&keyboard);
+
+			auto updatePresentationTimestamp = [&]()
+				{
+					m_currentImageAcquire = m_surface->acquireNextImage();
+
+					oracle.reportEndFrameRecord();
+					const auto timestamp = oracle.getNextPresentationTimeStamp();
+					oracle.reportBeginFrameRecord();
+
+					return timestamp;
+				};
+
+			const auto nextPresentationTimestamp = updatePresentationTimestamp();
+
+			if (!m_currentImageAcquire)
+				return;
+
+
+
 			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
 			{
 				logFail("Failed to map the Device Memory!\n");
@@ -554,11 +718,53 @@ float4 main(PSInput input) : SV_TARGET
 				cmdrec.dispatch(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, &m_Renderer.resourceMap, m_mtl.get(), WorkgroupCount, 1, 1);
 				cmdrec.cmdbuf->endDebugMarker();
 
+				asset::SViewport viewport;
+				{
+					viewport.minDepth = 1.f;
+					viewport.maxDepth = 0.f;
+					viewport.x = 0u;
+					viewport.y = 0u;
+					viewport.width = m_window->getWidth();
+					viewport.height = m_window->getHeight();
+				}
+				cmdrec.cmdbuf->setViewport(0u, 1u, &viewport);
+
+				VkRect2D scissor =
+				{
+					.offset = { 0, 0 },
+					.extent = { m_window->getWidth(), m_window->getHeight() },
+				};
+				cmdrec.cmdbuf->setScissor(0u, 1u, &scissor);
+
+				{
+					const VkRect2D currentRenderArea =
+					{
+						.offset = {0,0},
+						.extent = {m_window->getWidth(),m_window->getHeight()}
+					};
+
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,0.f,1.f} };
+					const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+					const IGPUCommandBuffer::SRenderpassBeginInfo info =
+					{
+						.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+						.colorClearValues = &clearValue,
+						.depthStencilClearValues = &depthValue,
+						.renderArea = currentRenderArea
+					};
+
+					cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				}
+
+				cmdrec.cmdbuf->endRenderPass();
+
 				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
 			}
 
 			m_api->startCapture();
-			m_Renderer.submit(m_device->getQueue(m_queueFamily, 0), asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT);
+			auto rendered = m_Renderer.submit(m_device->getQueue(m_queueFamily, 0), 
+				nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT) | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS);
 			m_api->endCapture();
 
 			m_Renderer.blockForCurrentFrame(); // wait to read CS result on CPU
@@ -578,20 +784,41 @@ float4 main(PSInput input) : SV_TARGET
 			}
 
 			m_buffAllocation->unmap();
+
+			m_surface->present(m_currentImageAcquire.imageIndex, { &rendered, 1U });
 		}
 
-		// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
-		bool keepRunning() override {return true;}
+		inline bool keepRunning() override
+		{
+			if (m_surface->irrecoverable())
+				return false;
+
+			return true;
+		}
+
+		inline bool onAppTerminated() override
+		{
+			return device_base_t::onAppTerminated();
+		}
 
 	private:
-		kris::refctd<nbl::video::ILogicalDevice> m_device;
+		smart_refctd_ptr<nbl::ui::IWindow> m_window;
+		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+
+		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
+		core::smart_refctd_ptr<InputSystem> m_inputSystem;
+		InputSystem::ChannelReader<nbl::ui::IMouseEventChannel> mouse;
+		InputSystem::ChannelReader<nbl::ui::IKeyboardEventChannel> keyboard;
+
+		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		video::CDumbPresentationOracle oracle;
+
 		uint8_t m_queueFamily = 0;
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
 		kris::refctd<kris::BufferResource> m_buffAllocation;
 		kris::refctd<kris::Material> m_mtl;
-
-		smart_refctd_ptr<nbl::video::CVulkanConnection> m_api;
 };
 
 

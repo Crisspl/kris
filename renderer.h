@@ -147,7 +147,7 @@ namespace kris
 			return true;
 		}
 
-		void submit(nbl::video::IQueue* cmdq, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> flags)
+		nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo submit(nbl::video::IQueue* cmdq, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> flags)
 		{
 			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[Material::NumPasses];
 			for (uint32_t i = 0U; i < Material::NumPasses; ++i)
@@ -162,6 +162,8 @@ namespace kris
 			submitInfos[0].signalSemaphores = signals;
 
 			cmdq->submit(submitInfos);
+
+			return signals[0];
 		}
 
 		bool endFrame()
