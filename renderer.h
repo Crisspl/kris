@@ -100,7 +100,7 @@ namespace kris
 
 		DescriptorSet createDescriptorSet(nbl::video::IGPUDescriptorSetLayout* layout)
 		{
-			auto nabla_ds = m_descPool[m_currentFrameVal & FramesInFlight]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(layout));
+			auto nabla_ds = m_descPool[getCurrentFrameIx()]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(layout));
 			auto ds = DescriptorSet(std::move(nabla_ds));
 
 			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
@@ -116,7 +116,7 @@ namespace kris
 		CommandRecorder createCommandRecorder()
 		{
 			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
-			m_cmdPool[m_currentFrameVal & FramesInFlight]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf, 1 });
+			m_cmdPool[getCurrentFrameIx()]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf, 1 });
 			return CommandRecorder(std::move(cmdbuf));
 		}
 
@@ -190,7 +190,7 @@ namespace kris
 			return blockForFrame(m_currentFrameVal - 1ULL);
 		}
 
-		uint64_t getCurrentFrame() const { return m_currentFrameVal; }
+		uint64_t getCurrentFrameIx() const { return m_currentFrameVal % FramesInFlight; }
 
 	private:
 		bool blockForFrame(uint64_t val)

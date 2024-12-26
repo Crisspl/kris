@@ -174,6 +174,10 @@ struct GeometryCreator
 	}
 };
 
+// For our Compute Shader
+constexpr uint32_t WorkgroupSize = 256;
+constexpr uint32_t WorkgroupCount = 2048;
+
 // this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
 class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
@@ -190,9 +194,6 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				return false;
 			// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
 			// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
-
-			// To do anything we need to create a Logical Device
-			smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 			
 			// Only Timeline Semaphores are supported in Nabla, there's no fences or binary semaphores.
 			// Swapchains run on adaptors with empty submits that make them look like they work with Timeline Semaphores,
@@ -204,11 +205,6 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			// The Logical Device itself implements the interface and behaves as the most simple allocator, it will create a new `nbl::video::IDeviceMemoryAllocation` every single time.
 			// We will cover allocators and suballocation in a later example.
 			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
-			kris::refctd<kris::BufferResource> buffAllocation;
-
-			// For our Compute Shader
-			constexpr uint32_t WorkgroupSize = 256;
-			constexpr uint32_t WorkgroupCount = 2048;
 
 			// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
 			{
@@ -224,9 +220,8 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					return logFail("Failed to crate an IAPIConnection!");
 			}
 
-			// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
-			uint8_t queueFamily;
-			// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
+			// We won't go deep into performing physical m_device selection in this example, we'll take any m_device with a compute queue.
+			// Nabla has its own set of required baseline Vulkan features anyway, it won't report any m_device that doesn't meet them.
 			nbl::video::IPhysicalDevice* physDev = nullptr;
 			ILogicalDevice::SCreationParams params = {};
 			for (auto physDevIt= m_api->getPhysicalDevices().begin(); physDevIt!= m_api->getPhysicalDevices().end(); physDevIt++)
@@ -237,17 +232,17 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 				{
 					physDev = *physDevIt;
-					queueFamily = i;
-					params.queueParams[queueFamily].count = 1;
+					m_queueFamily = i;
+					params.queueParams[m_queueFamily].count = 1;
 					break;
 				}
 			}
 			if (!physDev)
 				return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
 
-			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-			device = physDev->createLogicalDevice(std::move(params));
-			if (!device)
+			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical m_device
+			m_device = physDev->createLogicalDevice(std::move(params));
+			if (!m_device)
 				return logFail("Failed to create a Logical Device!");
 
 			// A word about `nbl::asset::IAsset`s, whenever you see an `nbl::asset::ICPUSomething` you can be sure an `nbl::video::IGPUSomething exists, and they both inherit from `nbl::asset::ISomething`.
@@ -298,7 +293,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			}
 
 			// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
-			smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader(cpuShader.get());
+			smart_refctd_ptr<nbl::video::IGPUShader> shader = m_device->createShader(cpuShader.get());
 			if (!shader)
 				return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
@@ -312,12 +307,12 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					.count=1,
 				}
 			};
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings);
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
 			if (!dsLayout)
 				return logFail("Failed to create a Descriptor Layout!\n");
 
 			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
-			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
+			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
 			if (!pplnLayout)
 				return logFail("Failed to create a Pipeline Layout!\n");
 
@@ -330,14 +325,14 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				params.shader.entryPoint = "main";
 				params.shader.shader = shader.get();
 				// we'll cover the specialization constant API in another example
-				if (!device->createComputePipelines(nullptr,{&params,1},&pipeline))
+				if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 					return logFail("Failed to create pipelines (compile & link shaders)!\n");
 			}
 
 #define RMAP_INDEX_OUTPUT_BUF kris::FirstUsableResourceMapSlot
 			static_assert(RMAP_INDEX_OUTPUT_BUF != kris::DefaultResourceMapSlot);
 
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(device), queueFamily, &m_ResourceAlctr, physDev->getHostVisibleMemoryTypeBits());
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_queueFamily, &m_ResourceAlctr, physDev->getHostVisibleMemoryTypeBits());
 
 			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
 			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
@@ -354,8 +349,8 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// the usages on an `IGPUBuffer` are crucial to specify correctly.
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
-				buffAllocation = m_ResourceAlctr.allocBuffer(device.get(), std::move(params), physDev->getHostVisibleMemoryTypeBits());
-				smart_refctd_ptr<IGPUBuffer> outputBuff = kris::refctd<nbl::video::IGPUBuffer>(buffAllocation->getBuffer());
+				m_buffAllocation = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(params), physDev->getHostVisibleMemoryTypeBits());
+				smart_refctd_ptr<IGPUBuffer> outputBuff = kris::refctd<nbl::video::IGPUBuffer>(m_buffAllocation->getBuffer());
 				if (!outputBuff)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
@@ -364,9 +359,9 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			}
 
 #if 0
-			auto renderpass = m_Renderer.createRenderpass(device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
+			auto renderpass = m_Renderer.createRenderpass(m_device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
 			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
-			auto gfxlayout = device->createPipelineLayout({});
+			auto gfxlayout = m_device->createPipelineLayout({});
 			{
 				auto cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
@@ -377,7 +372,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = vtxbuf_data->getSize();
 					ci.usage = nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
-					vtxbuf = m_ResourceAlctr.allocBuffer(device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
+					vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
 					void* ptr = vtxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
 					memcpy(ptr, vtxbuf_data->getPointer(), vtxbuf_data->getSize());
 					vtxbuf->unmap();
@@ -389,7 +384,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = idxbuf_data->getSize();
 					ci.usage = nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT;
-					idxbuf = m_ResourceAlctr.allocBuffer(device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
+					idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
 					void* ptr = idxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
 					memcpy(ptr, idxbuf_data->getPointer(), idxbuf_data->getSize());
 					idxbuf->unmap();
@@ -482,8 +477,8 @@ float4 main(PSInput input) : SV_TARGET
 					options.stage = nbl::asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT;
 					ps_cpu = compiler->compileToSPIRV(ps_source, options);
 
-					vs_shader = device->createShader(vs_cpu.get());
-					ps_shader = device->createShader(ps_cpu.get());
+					vs_shader = m_device->createShader(vs_cpu.get());
+					ps_shader = m_device->createShader(ps_cpu.get());
 				}
 
 				IGPUShader::SSpecInfo specInfo[2] = {
@@ -502,35 +497,49 @@ float4 main(PSInput input) : SV_TARGET
 				};
 				params[0].renderpass = renderpass.get();
 
-				device->createGraphicsPipelines(nullptr, params, &gfx);
+				m_device->createGraphicsPipelines(nullptr, params, &gfx);
 			}
 #endif
 
 			// set rmap
 			{
-				m_Renderer.resourceMap[RMAP_INDEX_OUTPUT_BUF] = buffAllocation.get();
+				m_Renderer.resourceMap[RMAP_INDEX_OUTPUT_BUF] = m_buffAllocation.get();
 			}
 
-			auto mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(1U << kris::Material::BasePass);
+			m_mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(1U << kris::Material::BasePass);
 			// set up material
 			{
 				for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
 				{
 					kris::DescriptorSet ds = m_Renderer.createDescriptorSet(dsLayout.get());
-					mtl->m_ds3[i] = std::move(ds);
+					m_mtl->m_ds3[i] = std::move(ds);
 				}
 
-				mtl->m_computePso[kris::Material::BasePass] = pipeline;
+				m_mtl->m_computePso[kris::Material::BasePass] = pipeline;
 
-				mtl->m_bindings[0].rmapIx = RMAP_INDEX_OUTPUT_BUF;
-				mtl->m_bindings[0].descCategory = nbl::asset::IDescriptor::EC_BUFFER;
-				mtl->m_bindings[0].info.buffer.format = nbl::asset::EF_UNKNOWN;
-				mtl->m_bindings[0].info.buffer.offset = 0U;
-				mtl->m_bindings[0].info.buffer.size = kris::Size_FullRange;
+				m_mtl->m_bindings[0].rmapIx = RMAP_INDEX_OUTPUT_BUF;
+				m_mtl->m_bindings[0].descCategory = nbl::asset::IDescriptor::EC_BUFFER;
+				m_mtl->m_bindings[0].info.buffer.format = nbl::asset::EF_UNKNOWN;
+				m_mtl->m_bindings[0].info.buffer.offset = 0U;
+				m_mtl->m_bindings[0].info.buffer.size = kris::Size_FullRange;
 			}
 
-			if (!buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
-				return logFail("Failed to map the Device Memory!\n");
+			// There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
+			// The tracking causes circular references from the resource back to the m_device, so unless we poll at the end of the application, they resources used by last submit will leak.
+			// We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
+			//m_device->waitIdle();
+
+			return true;
+		}
+
+		// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
+		void workLoopBody() override 
+		{
+			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
+			{
+				logFail("Failed to map the Device Memory!\n");
+				return;
+			}
 
 			m_Renderer.beginFrame();
 
@@ -542,46 +551,46 @@ float4 main(PSInput input) : SV_TARGET
 				//cmdrec.cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
 				//cmdrec.bindDescriptorSet(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0U, &ds);
 				//cmdrec.cmdbuf->dispatch(WorkgroupCount, 1, 1);
-				cmdrec.dispatch(device.get(), m_Renderer.getCurrentFrame(), kris::Material::BasePass, &m_Renderer.resourceMap, mtl.get(), WorkgroupCount, 1, 1);
+				cmdrec.dispatch(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, &m_Renderer.resourceMap, m_mtl.get(), WorkgroupCount, 1, 1);
 				cmdrec.cmdbuf->endDebugMarker();
 
 				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
 			}
 
 			m_api->startCapture();
-			m_Renderer.submit(device->getQueue(queueFamily, 0), asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT);
+			m_Renderer.submit(m_device->getQueue(m_queueFamily, 0), asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT);
 			m_api->endCapture();
 
 			m_Renderer.blockForCurrentFrame(); // wait to read CS result on CPU
 
 			m_Renderer.endFrame();
 
-			buffAllocation->invalidate(device.get());
-			auto buffData = reinterpret_cast<const uint32_t*>(buffAllocation->getMappedPtr());
+			m_buffAllocation->invalidate(m_device.get());
+			auto buffData = reinterpret_cast<const uint32_t*>(m_buffAllocation->getMappedPtr());
 
-			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
-			if (buffData[i]!=i)
-				return logFail("DWORD at position %d doesn't match!\n",i);
+			for (auto i = 0; i < WorkgroupSize * WorkgroupCount; i++)
+			{
+				if (buffData[i] != i)
+				{
+					logFail("DWORD at position %d doesn't match!\n", i);
+					break;
+				}
+			}
 
-			buffAllocation->unmap();
-
-			// There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
-			// The tracking causes circular references from the resource back to the device, so unless we poll at the end of the application, they resources used by last submit will leak.
-			// We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
-			device->waitIdle();
-
-			return true;
+			m_buffAllocation->unmap();
 		}
 
-		// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
-		void workLoopBody() override {}
-
 		// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
-		bool keepRunning() override {return false;}
+		bool keepRunning() override {return true;}
 
 	private:
+		kris::refctd<nbl::video::ILogicalDevice> m_device;
+		uint8_t m_queueFamily = 0;
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
+		kris::refctd<kris::BufferResource> m_buffAllocation;
+		kris::refctd<kris::Material> m_mtl;
+
 		smart_refctd_ptr<nbl::video::CVulkanConnection> m_api;
 };
 
