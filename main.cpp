@@ -330,11 +330,11 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 			// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
 			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-				// wipe-transition of Color to ATTACHMENT_OPTIMAL
-				{
-					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.dstSubpass = 0,
-					.memoryBarrier = {
+			// wipe-transition of Color to ATTACHMENT_OPTIMAL
+			{
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
 					// last place where the depth can get modified in previous frame
 					.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
 					// only write ops, reads can't be made available
@@ -346,11 +346,11 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				}
 				// leave view offsets and flags default
 			},
-				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-				{
-					.srcSubpass = 0,
-					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier = {
+			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
 					// last place where the depth can get modified
 					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 					// only write ops, reads can't be made available
@@ -490,36 +490,37 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				outputBuff->setObjectDebugName("My Output Buffer");
 			}
 
-#if 0
-			auto renderpass = m_Renderer.createRenderpass(m_device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
-			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
+#if 1
+			//auto renderpass = m_Renderer.createRenderpass(m_device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
+			
 			auto gfxlayout = m_device->createPipelineLayout({});
 			{
 				auto cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
-				kris::refctd<kris::BufferResource> vtxbuf;
 				{
 					auto& vtxbuf_data = cubedata.bindings[0].buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = vtxbuf_data->getSize();
 					ci.usage = nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
-					vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
-					void* ptr = vtxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
+					m_vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getHostVisibleMemoryTypeBits());
+					void* ptr = m_vtxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
 					memcpy(ptr, vtxbuf_data->getPointer(), vtxbuf_data->getSize());
-					vtxbuf->unmap();
+					m_vtxbuf->invalidate(m_device.get());
+					m_vtxbuf->unmap();
 				}
-				kris::refctd<kris::BufferResource> idxbuf;
+				
 				{
 					auto& idxbuf_data = cubedata.indexBuffer.buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = idxbuf_data->getSize();
 					ci.usage = nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT;
-					idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), physDev->getHostVisibleMemoryTypeBits());
-					void* ptr = idxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
+					m_idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getHostVisibleMemoryTypeBits());
+					void* ptr = m_idxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
 					memcpy(ptr, idxbuf_data->getPointer(), idxbuf_data->getSize());
-					idxbuf->unmap();
+					m_idxbuf->invalidate(m_device.get());
+					m_idxbuf->unmap();
 				}
 
 				nbl::asset::SBlendParams blendParams = {};
@@ -539,12 +540,14 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					R"(
 #pragma wave shader_stage(vertex)
 
+#if 0
 // set 1, binding 0
 [[vk::binding(0, 1)]]
 cbuffer CameraData
 {
     SBasicViewParameters params;
 };
+#endif
 
 struct VSInput
 {
@@ -560,10 +563,13 @@ struct PSInput
 	float4 color : COLOR0;
 };
 
-PSInput VSMain(VSInput input)
+PSInput main(VSInput input)
 {
     PSInput output;
+#if 0
     output.position = mul(params.MVP, float4(input.position, 1.0));
+#endif
+	output.position = float4(input.position, 1.0f);
     output.color = input.color;
     
     return output;
@@ -597,16 +603,17 @@ float4 main(PSInput input) : SV_TARGET
 					// want as much debug as possible
 					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
 					// this lets you source-level debug/step shaders in renderdoc
-					if (physDev->getLimits().shaderNonSemanticInfo)
+					if (m_physicalDevice->getLimits().shaderNonSemanticInfo)
 						options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
 					// if you don't set the logger and source identifier you'll have no meaningful errors
-					options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
+					options.preprocessorOptions.sourceIdentifier = "mesh.vert.hlsl";
 					options.preprocessorOptions.logger = m_logger.get();
 					//options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
 
 					vs_cpu = compiler->compileToSPIRV(vs_source, options);
 
 					options.stage = nbl::asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT;
+					options.preprocessorOptions.sourceIdentifier = "mesh.frag.hlsl";
 					ps_cpu = compiler->compileToSPIRV(ps_source, options);
 
 					vs_shader = m_device->createShader(vs_cpu.get());
@@ -627,9 +634,9 @@ float4 main(PSInput input) : SV_TARGET
 					.rasterization = rasterParams,
 					.blend = blendParams,
 				};
-				params[0].renderpass = renderpass.get();
+				params[0].renderpass = renderpass;/*renderpass.get();*/
 
-				m_device->createGraphicsPipelines(nullptr, params, &gfx);
+				m_device->createGraphicsPipelines(nullptr, params, &m_gfx);
 			}
 #endif
 
@@ -708,7 +715,7 @@ float4 main(PSInput input) : SV_TARGET
 			m_Renderer.beginFrame();
 
 			{
-				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder();
+				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::Material::BasePass);
 
 				cmdrec.cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 				//cmdrec.cmdbuf->bindComputePipeline(pipeline.get());
@@ -757,15 +764,30 @@ float4 main(PSInput input) : SV_TARGET
 					cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
 
+				{
+					nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> bnd;
+					bnd.buffer = kris::refctd<const nbl::video::IGPUBuffer>( m_vtxbuf->getBuffer() );
+					bnd.offset = 0;
+					cmdrec.cmdbuf->bindVertexBuffers(0U, 1U, &bnd);
+				}
+				{
+					nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> bnd;
+					bnd.buffer = kris::refctd<const nbl::video::IGPUBuffer>(m_idxbuf->getBuffer());
+					bnd.offset = 0;
+					cmdrec.cmdbuf->bindIndexBuffer(bnd, nbl::asset::EIT_16BIT);
+				}
+				cmdrec.cmdbuf->bindGraphicsPipeline(m_gfx.get());
+				cmdrec.cmdbuf->drawIndexed(36, 1, 0, 0, 0);
+
 				cmdrec.cmdbuf->endRenderPass();
 
 				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
 			}
 
-			m_api->startCapture();
+			//m_api->startCapture();
 			auto rendered = m_Renderer.submit(m_device->getQueue(m_queueFamily, 0), 
 				nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT) | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS);
-			m_api->endCapture();
+			//m_api->endCapture();
 
 			m_Renderer.blockForCurrentFrame(); // wait to read CS result on CPU
 
@@ -819,6 +841,10 @@ float4 main(PSInput input) : SV_TARGET
 		kris::Renderer m_Renderer;
 		kris::refctd<kris::BufferResource> m_buffAllocation;
 		kris::refctd<kris::Material> m_mtl;
+
+		kris::refctd<nbl::video::IGPUGraphicsPipeline> m_gfx;
+		kris::refctd<kris::BufferResource> m_vtxbuf;
+		kris::refctd<kris::BufferResource> m_idxbuf;
 };
 
 

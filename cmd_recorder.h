@@ -53,9 +53,11 @@ namespace kris
 			DeferredAllocDeletion resources;
 		};
 
+		Material::EPass pass = Material::EPass::NumPasses;
 		refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
 
-		explicit CommandRecorder(refctd<nbl::video::IGPUCommandBuffer>&& cb) :
+		explicit CommandRecorder(Material::EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
+			pass(_pass),
 			cmdbuf(std::move(cb))
 		{
 			cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT); // TODO: do we always have one-time submitted cmdbufs?

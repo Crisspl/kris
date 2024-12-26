@@ -223,7 +223,9 @@ namespace kris
 
 			void* map(const nbl::core::bitflag<nbl::video::IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags)
 			{
-				return allocation.binding.memory->map({ allocation.binding.offset, this->getSize() }, flags);
+				void* ptr = allocation.binding.memory->map({ allocation.binding.offset, this->getSize() }, flags);
+				KRIS_ASSERT_MSG(ptr, "Failed to map!");
+				return getMappedPtr();
 			}
 			bool unmap()
 			{
@@ -231,7 +233,10 @@ namespace kris
 			}
 			void* getMappedPtr()
 			{
-				return reinterpret_cast<uint8_t*>(allocation.binding.memory->getMappedPointer()) + allocation.binding.offset;
+				void* ptr = allocation.binding.memory->getMappedPointer();
+				if (!ptr)
+					return nullptr;
+				return reinterpret_cast<uint8_t*>(ptr) + allocation.binding.offset;
 			}
 			bool invalidate(nbl::video::ILogicalDevice* device)
 			{

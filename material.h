@@ -191,7 +191,10 @@ namespace kris
 				}
 			}
 
-			device->updateDescriptorSets(updated, writes, 0U, nullptr);
+			if (updated > 0U)
+			{
+				device->updateDescriptorSets(updated, writes, 0U, nullptr);
+			}
 		}
 
 		bool livesInPass(EPass pass)

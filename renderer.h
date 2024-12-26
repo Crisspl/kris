@@ -59,7 +59,10 @@ namespace kris
 			{
 				// cmd pool
 				{
-					m_cmdPool[i] = m_device->createCommandPool(qFamIx, nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+					m_cmdPool[i] = m_device->createCommandPool(qFamIx, 
+						nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT) | nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
+					m_cmdPool[i]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],Material::NumPasses });
 				}
 				// desc pool
 				{
@@ -113,19 +116,21 @@ namespace kris
 
 		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
 
-		CommandRecorder createCommandRecorder()
+		CommandRecorder createCommandRecorder(Material::EPass pass)
 		{
-			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
-			m_cmdPool[getCurrentFrameIx()]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf, 1 });
-			return CommandRecorder(std::move(cmdbuf));
+			refctd<nbl::video::IGPUCommandBuffer>& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][pass];
+			
+			return CommandRecorder(pass, std::move(cmdbuf));
 		}
 
 		void consumeAsPass(Material::EPass pass, CommandRecorder&& cmdrec)
 		{
+			KRIS_ASSERT(pass == cmdrec.pass);
+
 			CommandRecorder::Result result;
 			cmdrec.endAndObtainResources(result);
 
-			m_cmdbufPasses[pass] = std::move(result.cmdbuf);
+			m_cmdbufPasses[getCurrentFrameIx()][pass] = std::move(result.cmdbuf);
 			nbl::video::ISemaphore::SWaitInfo wi;
 			m_lifetimeTracker->latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
 		}
@@ -144,6 +149,12 @@ namespace kris
 				if (m_device->blockForSemaphores(wi) != nbl::video::ISemaphore::WAIT_RESULT::SUCCESS)
 					return false;
 			}
+
+			for (uint32_t p = 0U; p < Material::NumPasses; ++p)
+			{
+				m_cmdbufPasses[getCurrentFrameIx()][p]->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			}
+
 			return true;
 		}
 
@@ -151,7 +162,7 @@ namespace kris
 		{
 			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[Material::NumPasses];
 			for (uint32_t i = 0U; i < Material::NumPasses; ++i)
-				cmdbufs[i].cmdbuf = m_cmdbufPasses[i].get();
+				cmdbufs[i].cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][i].get();
 
 			nbl::video::IQueue::SSubmitInfo submitInfos[1] = {};
 			submitInfos[0].commandBuffers = cmdbufs;
@@ -168,12 +179,6 @@ namespace kris
 
 		bool endFrame()
 		{
-			// cmdbufs are held by queue until finished execution so we can drop them here safely without CPU wait
-			for (uint32_t i = 0U; i < Material::NumPasses; ++i)
-			{
-				m_cmdbufPasses[i] = nullptr;
-			}
-
 			m_lifetimeTracker->poll();
 
 			m_currentFrameVal++;
@@ -215,7 +220,7 @@ namespace kris
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
-		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[Material::NumPasses];
+		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][Material::NumPasses];
 
 		refctd<BufferResource> m_defaultBuffer;
 		refctd<ImageResource> m_defaultImage;
