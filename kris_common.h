@@ -53,8 +53,9 @@ namespace kris
 		FramesInFlight = 3U,
 
 		ResourceMapSlots = 256U,
-		DefaultResourceMapSlot = 0U,
-		FirstUsableResourceMapSlot = DefaultResourceMapSlot + 1,
+		DefaultBufferResourceMapSlot = 0U,
+		DefaultImageResourceMapSlot = 1U,
+		FirstUsableResourceMapSlot = DefaultImageResourceMapSlot + 1,
 
 		Size_FullRange = 0U,
 		MipCount_FullRange = 0U,

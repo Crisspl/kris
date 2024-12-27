@@ -443,6 +443,7 @@ namespace kris
 			}
 
 			nbl::video::IGPUImage* getImage() const { return static_cast<nbl::video::IGPUImage*>(resource.get()); }
+			size_t getSize() const override { return getImage()->getMemoryReqs().size; }
 		};
 
 		ResourceAllocator()
@@ -471,6 +472,26 @@ namespace kris
 			}
 
 			return nbl::core::make_smart_refctd_ptr<BufferAllocation>(this, std::move(buf), al);
+		}
+
+		refctd<ImageAllocation> allocImage(nbl::video::ILogicalDevice* device, nbl::video::IGPUImage::SCreationParams&& params, uint32_t memTypeBitsConstraints)
+		{
+			refctd<nbl::video::IGPUImage> img = device->createImage(std::move(params));
+			const size_t size = img->getMemoryReqs().size;
+
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = device->getMemoryRequirementsForImage(img.get());
+			req.memoryTypeBits &= memTypeBitsConstraints;
+
+			const uint32_t memTypeIndex = nbl::hlsl::findLSB(req.memoryTypeBits);
+			MemHeap::Allocation al = m_heaps[memTypeIndex].allocate(device, size, 1U << req.alignmentLog2, false);
+			{
+				nbl::video::ILogicalDevice::SBindImageMemoryInfo info[1];
+				info[0].binding = al.binding;
+				info[0].image = img.get();
+				device->bindImageMemory(1U, info);
+			}
+
+			return nbl::core::make_smart_refctd_ptr<ImageAllocation>(this, std::move(img), al);
 		}
 
 		void deallocate(Allocation* al, size_t size)

@@ -424,6 +424,8 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					return logFail("Failed to compile following HLSL Shader:\n%s\n",source);
 			}
 
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_queueFamily, &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
+
 			// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
 			smart_refctd_ptr<nbl::video::IGPUShader> shader = m_device->createShader(cpuShader.get());
 			if (!shader)
@@ -439,7 +441,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					.count=1,
 				}
 			};
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = kris::refctd<nbl::video::IGPUDescriptorSetLayout>( m_Renderer.getMtlDsl() );
 			if (!dsLayout)
 				return logFail("Failed to create a Descriptor Layout!\n");
 
@@ -462,9 +464,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			}
 
 #define RMAP_INDEX_OUTPUT_BUF kris::FirstUsableResourceMapSlot
-			static_assert(RMAP_INDEX_OUTPUT_BUF != kris::DefaultResourceMapSlot);
-
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_queueFamily, &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
+			static_assert(RMAP_INDEX_OUTPUT_BUF >= kris::FirstUsableResourceMapSlot);
 
 			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
 			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
@@ -538,7 +538,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 				const char* vs_source = 
 					R"(
-#pragma wave shader_stage(vertex)
+//#pragma wave shader_stage(vertex)
 
 #if 0
 // set 1, binding 0
@@ -576,7 +576,7 @@ PSInput main(VSInput input)
 })";
 				const char* ps_source =
 					R"(
-#pragma wave shader_stage(fragment)
+//#pragma wave shader_stage(fragment)
 
 struct PSInput
 {
@@ -636,7 +636,13 @@ float4 main(PSInput input) : SV_TARGET
 				};
 				params[0].renderpass = renderpass;/*renderpass.get();*/
 
-				m_device->createGraphicsPipelines(nullptr, params, &m_gfx);
+				kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
+				m_device->createGraphicsPipelines(nullptr, params, &gfx);
+
+				m_gfxmtl = m_Renderer.createMaterial(1U << kris::Material::BasePass, 0);
+				{
+					m_gfxmtl->m_gfxPso[kris::Material::BasePass] = std::move(gfx);
+				}
 			}
 #endif
 
@@ -645,22 +651,16 @@ float4 main(PSInput input) : SV_TARGET
 				m_Renderer.resourceMap[RMAP_INDEX_OUTPUT_BUF] = m_buffAllocation.get();
 			}
 
-			m_mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(1U << kris::Material::BasePass);
+			m_mtl = m_Renderer.createMaterial(1U << kris::Material::BasePass, kris_bndbit(b0));
 			// set up material
 			{
-				for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
-				{
-					kris::DescriptorSet ds = m_Renderer.createDescriptorSet(dsLayout.get());
-					m_mtl->m_ds3[i] = std::move(ds);
-				}
-
 				m_mtl->m_computePso[kris::Material::BasePass] = pipeline;
 
-				m_mtl->m_bindings[0].rmapIx = RMAP_INDEX_OUTPUT_BUF;
-				m_mtl->m_bindings[0].descCategory = nbl::asset::IDescriptor::EC_BUFFER;
-				m_mtl->m_bindings[0].info.buffer.format = nbl::asset::EF_UNKNOWN;
-				m_mtl->m_bindings[0].info.buffer.offset = 0U;
-				m_mtl->m_bindings[0].info.buffer.size = kris::Size_FullRange;
+				m_mtl->m_bindings[kris_bnd(b0)].rmapIx = RMAP_INDEX_OUTPUT_BUF;
+				m_mtl->m_bindings[kris_bnd(b0)].descCategory = nbl::asset::IDescriptor::EC_BUFFER;
+				m_mtl->m_bindings[kris_bnd(b0)].info.buffer.format = nbl::asset::EF_UNKNOWN;
+				m_mtl->m_bindings[kris_bnd(b0)].info.buffer.offset = 0U;
+				m_mtl->m_bindings[kris_bnd(b0)].info.buffer.size = kris::Size_FullRange;
 			}
 
 			// There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
@@ -776,7 +776,7 @@ float4 main(PSInput input) : SV_TARGET
 					bnd.offset = 0;
 					cmdrec.cmdbuf->bindIndexBuffer(bnd, nbl::asset::EIT_16BIT);
 				}
-				cmdrec.cmdbuf->bindGraphicsPipeline(m_gfx.get());
+				cmdrec.setMaterial(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, &m_Renderer.resourceMap, m_gfxmtl.get());
 				cmdrec.cmdbuf->drawIndexed(36, 1, 0, 0, 0);
 
 				cmdrec.cmdbuf->endRenderPass();
@@ -840,9 +840,9 @@ float4 main(PSInput input) : SV_TARGET
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
 		kris::refctd<kris::BufferResource> m_buffAllocation;
+		kris::refctd<kris::Material> m_gfxmtl;
 		kris::refctd<kris::Material> m_mtl;
 
-		kris::refctd<nbl::video::IGPUGraphicsPipeline> m_gfx;
 		kris::refctd<kris::BufferResource> m_vtxbuf;
 		kris::refctd<kris::BufferResource> m_idxbuf;
 };

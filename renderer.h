@@ -14,7 +14,7 @@ namespace kris
 		{
 			// Desc pool limits
 			MaxSets = 400U,
-			MaxCombinedImgSmplr = 0U,
+			MaxCombinedImgSmplr = 1000U,
 			MaxSamplers = 50U,
 			MaxSampledImgs = 1000U,
 			MaxStorageImgs = 1000U,
@@ -45,6 +45,11 @@ namespace kris
 		ImageResource* getDefaultImageResource()
 		{
 			return m_defaultImage.get();
+		}
+
+		nbl::video::IGPUDescriptorSetLayout* getMtlDsl()
+		{
+			return m_mtlDsl.get();
 		}
 
 		Renderer() = default;
@@ -86,32 +91,85 @@ namespace kris
 				}
 			}
 
+			// material ds layout
+			{
+				nbl::video::IGPUDescriptorSetLayout::SBinding bindings[Material::BindingSlot::BindingSlotCount];
+				uint32_t b_ix = 0;
+				for (auto& b : bindings)
+				{
+					const uint32_t b_num = b_ix++;
+
+					b.binding = b_num;
+					b.count = 1;
+					b.immutableSamplers = nullptr;
+					b.stageFlags = nbl::core::bitflag<nbl::asset::IShader::E_SHADER_STAGE>(nbl::hlsl::ESS_VERTEX) | nbl::hlsl::ESS_FRAGMENT | nbl::hlsl::ESS_COMPUTE;
+					b.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
+					b.type = Material::isTextureBindingSlot((Material::BindingSlot)b_num) ?
+						nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER :
+						nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+				}
+				m_mtlDsl = m_device->createDescriptorSetLayout({ bindings,Material::BindingSlot::BindingSlotCount });
+			}
+
+			//Default resources
+			// default buffer:
 			{
 				nbl::video::IGPUBuffer::SCreationParams ci = {};
-				ci.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;// nbl::video::IGPUBuffer::EUF_NONE;
+				ci.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;// TODO probably should be all of them, NONE doesnt work as all
 				ci.size = 64ULL;
 				m_defaultBuffer = ra->allocBuffer(m_device.get(), std::move(ci), defResourcesMemTypeBitsConstraints);
 			}
-			// TODO: create default buffer
+			// default image:
+			{
+				nbl::video::IGPUImage::SCreationParams ci;
+				ci.tiling = nbl::video::IGPUImage::TILING::LINEAR;
+				ci.arrayLayers = 1;
+				ci.mipLevels = 1;
+				ci.extent = { 2,2,1 };
+				ci.format = nbl::asset::EF_R8_UNORM;
+				ci.type = nbl::video::IGPUImage::ET_2D;
+				ci.samples = nbl::video::IGPUImage::ESCF_1_BIT;
+				m_defaultImage = ra->allocImage(m_device.get(), std::move(ci), defResourcesMemTypeBitsConstraints);
+			}
+
+			resourceMap.slots[DefaultBufferResourceMapSlot] = getDefaultBufferResource();
+			resourceMap.slots[DefaultImageResourceMapSlot] = getDefaultImageResource();
 
 			// fill rmap with default resources
-			for (uint32_t i = 0U; i < ResourceMapSlots; ++i)
+			for (uint32_t i = FirstUsableResourceMapSlot; i < ResourceMapSlots; ++i)
 			{
 				resourceMap.slots[i] = getDefaultBufferResource();
 			}
 		}
 
-		DescriptorSet createDescriptorSet(nbl::video::IGPUDescriptorSetLayout* layout)
+		DescriptorSet createDescriptorSetForMaterial()
 		{
-			auto nabla_ds = m_descPool[getCurrentFrameIx()]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(layout));
+			// TODO why do we actually have 3 desc pools? Read about desc pools management
+			auto* dsl = getMtlDsl();
+			auto nabla_ds = m_descPool[getCurrentFrameIx()]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(dsl));
 			auto ds = DescriptorSet(std::move(nabla_ds));
 
 			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
 			{
-				ds.m_resources[b] = refctd<Resource>(getDefaultBufferResource());
+				ds.m_resources[b] = Material::isTextureBindingSlot((Material::BindingSlot)b) ? 
+					refctd<Resource>(getDefaultImageResource()) : 
+					refctd<Resource>(getDefaultBufferResource());
 			}
 
 			return ds;
+		}
+
+		// After creating via this call, material still has needs pipeline(s) and bindings filled
+		refctd<Material> createMaterial(uint32_t passMask, uint32_t bndMask)
+		{
+			auto mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(passMask, bndMask);
+			for (uint32_t i = 0U; i < FramesInFlight; ++i)
+			{
+				kris::DescriptorSet ds = createDescriptorSetForMaterial();
+				mtl->m_ds3[i] = std::move(ds);
+			}
+
+			return mtl;
 		}
 
 		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
@@ -221,6 +279,8 @@ namespace kris
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
 		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][Material::NumPasses];
+
+		refctd<nbl::video::IGPUDescriptorSetLayout> m_mtlDsl;
 
 		refctd<BufferResource> m_defaultBuffer;
 		refctd<ImageResource> m_defaultImage;

@@ -118,6 +118,37 @@ namespace kris
 	class Material : public nbl::core::IReferenceCounted
 	{
 	public:
+		enum BindingSlot : uint32_t
+		{
+			// b0..n - buffers
+			b0 = 0,
+			b1,
+			b2,
+			b3,
+			b4,
+			b5,
+			b6,
+			b7,
+			// t0..n - textures
+			t0,
+			t1,
+			t2,
+			t3,
+			t4,
+			t5,
+			t6,
+			t7,
+
+			BindingSlotCount
+		};
+#define kris_bnd(bnd)		kris::Material::BindingSlot::bnd
+#define kris_bndbit(bnd)	(1U << kris::Material::BindingSlot::bnd)
+
+		static bool isTextureBindingSlot(BindingSlot slot)
+		{
+			return (slot >= BindingSlot::t0) && (slot < BindingSlot::BindingSlotCount);
+		}
+
 		enum EPass : uint32_t
 		{
 			BasePass = 0U,
@@ -125,15 +156,32 @@ namespace kris
 			NumPasses
 		};
 
-		explicit Material(uint32_t passmask) : m_passMask(passmask)
+
+		explicit Material(uint32_t passmask, uint32_t bndmask) : m_passMask(passmask), m_bndMask(bndmask)
 		{
 			for (uint32_t i = 0U; i < DescriptorSet::MaxBindings; ++i)
 			{
-				m_bindings[i].rmapIx = DefaultResourceMapSlot;
-				m_bindings[i].descCategory = nbl::asset::IDescriptor::EC_BUFFER;
-				m_bindings[i].info.buffer.format = nbl::asset::EF_UNKNOWN;
-				m_bindings[i].info.buffer.offset = 0;
-				m_bindings[i].info.buffer.size = Size_FullRange;
+				m_bindings[i].rmapIx = isTextureBindingSlot((BindingSlot)i) ? DefaultImageResourceMapSlot : DefaultBufferResourceMapSlot;
+				m_bindings[i].descCategory = isTextureBindingSlot((BindingSlot)i) ? nbl::asset::IDescriptor::EC_IMAGE : nbl::asset::IDescriptor::EC_BUFFER;
+				if (!isTextureBindingSlot((BindingSlot)i))
+				{
+					m_bindings[i].info.buffer.format = nbl::asset::EF_UNKNOWN;
+					m_bindings[i].info.buffer.offset = 0;
+					m_bindings[i].info.buffer.size = Size_FullRange;
+				}
+				else
+				{
+					// TODO sampler
+					//m_bindings[i].sampler
+
+					m_bindings[i].info.image.aspect = nbl::asset::IImage::EAF_COLOR_BIT;
+					m_bindings[i].info.image.layout = nbl::video::IGPUImage::LAYOUT::GENERAL;
+					m_bindings[i].info.image.format = nbl::asset::EF_R8_UNORM;
+					m_bindings[i].info.image.viewtype = nbl::video::IGPUImageView::ET_2D;
+					m_bindings[i].info.image.mipOffset = m_bindings[i].info.image.layerOffset = 0;
+					m_bindings[i].info.image.mipCount = MipCount_FullRange;
+					m_bindings[i].info.image.layerCount = LayerCount_FullRange;
+				}
 			}
 		}
 
@@ -152,6 +200,9 @@ namespace kris
 
 			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
 			{
+				if ((m_bndMask & (1U << b)) == 0U)
+					continue;
+
 				auto& bnd = m_bindings[b];
 				auto& slot = map->slots[bnd.rmapIx];
 
@@ -217,7 +268,7 @@ namespace kris
 		refctd<nbl::video::IGPUComputePipeline> m_computePso[NumPasses];
 		struct Binding
 		{
-			uint32_t rmapIx = DefaultResourceMapSlot;
+			uint32_t rmapIx = DefaultBufferResourceMapSlot;
 			nbl::asset::IDescriptor::E_CATEGORY descCategory = nbl::asset::IDescriptor::EC_COUNT;
 			refctd<nbl::video::IGPUSampler> sampler = nullptr;
 			union ExtraInfo
@@ -251,6 +302,7 @@ namespace kris
 		};
 		Binding m_bindings[DescriptorSet::MaxBindings];
 		uint32_t m_passMask;
+		uint32_t m_bndMask;
 		// TODO: push constants?
 	};
 }

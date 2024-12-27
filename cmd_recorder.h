@@ -78,12 +78,9 @@ namespace kris
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
-	private:
 		void setMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, Material* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
-
-			mtl->updateDescSet(device, frameIx, rmap);
 
 			const nbl::video::IGPUPipelineLayout* layout = nullptr;
 			if (mtl->getMtlType() == nbl::asset::EPBP_COMPUTE)
@@ -98,16 +95,24 @@ namespace kris
 				layout = pso->getLayout();
 				cmdbuf->bindGraphicsPipeline(pso.get());
 			}
-			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
+
+			const bool hasDescSet = layout->getDescriptorSetLayout(MaterialDescSetIndex) != nullptr;
+
+			if (hasDescSet)
+			{
+				mtl->updateDescSet(device, frameIx, rmap);
+
+				bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
+			}
 		}
 
+	private:
 		void bindDescriptorSet(
 			nbl::asset::E_PIPELINE_BIND_POINT q,
 			const nbl::video::IGPUPipelineLayout* layout,
 			uint32_t dsIx,
 			const DescriptorSet* ds)
 		{
-
 			cmdbuf->bindDescriptorSets(q, layout, dsIx, 1U, &ds->m_ds.get());
 			for (auto& res : ds->m_resources)
 			{
