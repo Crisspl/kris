@@ -36,6 +36,22 @@ namespace kris
 		};
 
 	public:
+#include "nbl/nblpack.h"
+		struct CommonVertex
+		{
+			float pos[3];
+			uint8_t color[4]; // normalized
+			uint8_t uv[2];
+			int8_t normal[3];
+			uint8_t dummy[3];
+
+			void setPos(float x, float y, float z) { pos[0] = x; pos[1] = y; pos[2] = z; }
+			void translate(float dx, float dy, float dz) { pos[0] += dx; pos[1] += dy; pos[2] += dz; }
+			void setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) { color[0] = r; color[1] = g; color[2] = b; color[3] = a; }
+			void setNormal(int8_t x, int8_t y, int8_t z) { normal[0] = x; normal[1] = y; normal[2] = z; }
+			void setUv(uint8_t u, uint8_t v) { uv[0] = u; uv[1] = v; }
+		} PACK_STRUCT;
+
 		ResourceMap resourceMap;
 
 		BufferResource* getDefaultBufferResource()
@@ -111,6 +127,13 @@ namespace kris
 				m_mtlDsl = m_device->createDescriptorSetLayout({ bindings,Material::BindingSlot::BindingSlotCount });
 			}
 
+			// material ppln layout
+			{
+				static_assert(CommandRecorder::MaterialDescSetIndex == 0, "If MaterialDescSetIndex is not 0, this pipeline layout creation needs to be altered!");
+
+				m_mtlPplnLayout = m_device->createPipelineLayout({}, refctd(m_mtlDsl));
+			}
+
 			//Default resources
 			// default buffer:
 			{
@@ -147,6 +170,7 @@ namespace kris
 			// TODO why do we actually have 3 desc pools? Read about desc pools management
 			auto* dsl = getMtlDsl();
 			auto nabla_ds = m_descPool[getCurrentFrameIx()]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(dsl));
+			KRIS_ASSERT(nabla_ds);
 			auto ds = DescriptorSet(std::move(nabla_ds));
 
 			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
@@ -170,6 +194,76 @@ namespace kris
 			}
 
 			return mtl;
+		}
+
+		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(nbl::video::IGPURenderpass* renderpass, nbl::asset::ICPUShader* cpuvert, nbl::asset::ICPUShader* cpufrag)
+		{
+			auto vert = m_device->createShader(cpuvert);
+			auto frag = m_device->createShader(cpufrag);
+
+			nbl::video::IGPUShader::SSpecInfo specInfo[2] = {
+				{.shader = vert.get()},
+				{.shader = frag.get()},
+			};
+
+			nbl::asset::SBlendParams blendParams = {};
+			blendParams.blendParams[0u].srcColorFactor = nbl::asset::EBF_ONE;
+			blendParams.blendParams[0u].dstColorFactor = nbl::asset::EBF_ZERO;
+			blendParams.blendParams[0u].colorBlendOp = nbl::asset::EBO_ADD;
+			blendParams.blendParams[0u].srcAlphaFactor = nbl::asset::EBF_ONE;
+			blendParams.blendParams[0u].dstAlphaFactor = nbl::asset::EBF_ZERO;
+			blendParams.blendParams[0u].alphaBlendOp = nbl::asset::EBO_ADD;
+			blendParams.blendParams[0u].colorWriteMask = 0xfU;
+
+			nbl::asset::SRasterizationParams rasterParams;
+			rasterParams.polygonMode = nbl::asset::EPM_FILL;
+			rasterParams.faceCullingMode = nbl::asset::EFCM_NONE;
+			rasterParams.depthWriteEnable = true;
+
+			nbl::asset::SPrimitiveAssemblyParams assemblyParams;
+
+			constexpr size_t vertexSize = sizeof(CommonVertex);
+			nbl::asset::SVertexInputParams inputParams = { 0b1111u,0b1u,{
+												{0u,nbl::asset::EF_R32G32B32_SFLOAT,offsetof(CommonVertex,pos)},
+												{0u,nbl::asset::EF_R8G8B8A8_UNORM,offsetof(CommonVertex,color)},
+												{0u,nbl::asset::EF_R8G8_USCALED,offsetof(CommonVertex,uv)},
+												{0u,nbl::asset::EF_R8G8B8_SSCALED,offsetof(CommonVertex,normal)}
+											},{vertexSize,nbl::asset::SVertexInputBindingParams::EVIR_PER_VERTEX} };
+
+			nbl::video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
+			params[0].layout = m_mtlPplnLayout.get();
+			params[0].shaders = specInfo;
+			params[0].cached = {
+				.vertexInput = inputParams,
+				.primitiveAssembly = assemblyParams,
+				.rasterization = rasterParams,
+				.blend = blendParams,
+			};
+			params[0].renderpass = renderpass;
+
+			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
+
+			bool result = m_device->createGraphicsPipelines(nullptr, params, &gfx);
+			KRIS_ASSERT(result);
+
+			return gfx;
+		}
+
+		refctd<nbl::video::IGPUComputePipeline> createComputePipelineForMaterial(nbl::asset::ICPUShader* cpucomp)
+		{
+			auto comp = m_device->createShader(cpucomp);
+
+			nbl::video::IGPUComputePipeline::SCreationParams params;
+			params.layout = m_mtlPplnLayout.get();
+			params.shader.entryPoint = "main";
+			params.shader.shader = comp.get();
+
+			refctd<nbl::video::IGPUComputePipeline> pipeline;
+
+			bool result = m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline);
+			KRIS_ASSERT(result);
+
+			return pipeline;
 		}
 
 		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
@@ -281,6 +375,7 @@ namespace kris
 		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][Material::NumPasses];
 
 		refctd<nbl::video::IGPUDescriptorSetLayout> m_mtlDsl;
+		refctd<nbl::video::IGPUPipelineLayout> m_mtlPplnLayout;
 
 		refctd<BufferResource> m_defaultBuffer;
 		refctd<ImageResource> m_defaultImage;

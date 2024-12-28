@@ -42,8 +42,8 @@ if ((!(cond)) && IsDebuggerPresent())\
 	__debugbreak();\
 }
 #else
-#define KRIS_ASSERT(cond)
-#define KRIS_ASSERT_MSG(...)
+#define KRIS_ASSERT(cond) ((void)(cond))
+#define KRIS_ASSERT_MSG(cond, ...) ((void)(cond))
 #endif
 
 namespace kris

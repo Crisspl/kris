@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kris_common.h"
+#include "resource_allocator.h"
 
 namespace kris
 {
@@ -129,6 +130,7 @@ namespace kris
 			b5,
 			b6,
 			b7,
+			bMAX=b7,
 			// t0..n - textures
 			t0,
 			t1,
@@ -138,11 +140,13 @@ namespace kris
 			t5,
 			t6,
 			t7,
+			tMAX=t7,
 
 			BindingSlotCount
 		};
 #define kris_bnd(bnd)		kris::Material::BindingSlot::bnd
 #define kris_bndbit(bnd)	(1U << kris::Material::BindingSlot::bnd)
+		static_assert(BindingSlotCount == DescriptorSet::MaxBindings);
 
 		static bool isTextureBindingSlot(BindingSlot slot)
 		{
