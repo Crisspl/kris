@@ -70,16 +70,16 @@ namespace kris
 			out_Result.resources = std::move(m_resources);
 		}
 
-		void dispatch(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, 
+		void dispatch(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass,
 			ComputeMaterial* mtl, uint32_t wgcx, uint32_t wgcy, uint32_t wgcz)
 		{
-			setComputeMaterial(device, frameIx, pass, rmap, mtl);
+			setComputeMaterial(device, frameIx, pass, mtl);
 
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
 		void setGfxMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, 
-			const nbl::asset::SVertexInputParams& vtxinput, const ResourceMap* rmap, GfxMaterial* mtl)
+			const nbl::asset::SVertexInputParams& vtxinput, GfxMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
 
@@ -87,12 +87,12 @@ namespace kris
 			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
 			cmdbuf->bindGraphicsPipeline(pso);
 
-			mtl->updateDescSet(device, frameIx, rmap);
+			mtl->updateDescSet(device, frameIx);
 
 			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
 		}
 
-		void setComputeMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, ComputeMaterial* mtl)
+		void setComputeMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, ComputeMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
 
@@ -100,7 +100,7 @@ namespace kris
 			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
 			cmdbuf->bindComputePipeline(pso.get());
 
-			mtl->updateDescSet(device, frameIx, rmap);
+			mtl->updateDescSet(device, frameIx);
 
 			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
 		}

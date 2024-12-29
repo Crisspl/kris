@@ -197,63 +197,7 @@ namespace kris
 
 		}
 
-		void updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx, const ResourceMap* map)
-		{
-			auto& ds = m_ds3[frameIx];
-
-			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet writes[DescriptorSet::MaxBindings];
-			nbl::video::IGPUDescriptorSet::SDescriptorInfo infos[DescriptorSet::MaxBindings];
-			uint32_t updated = 0U;
-
-			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
-			{
-				if ((m_bndMask & (1U << b)) == 0U)
-					continue;
-
-				auto& bnd = m_bindings[b];
-				auto& slot = map->slots[bnd.rmapIx];
-
-				if (!slot.resource->compareIds(ds.m_resources[b].get())) // dirty
-				{
-					if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER || bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
-					{
-						KRIS_ASSERT(slot.bIsBuffer);
-
-						if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
-						{
-							KRIS_ASSERT(bnd.info.buffer.format != nbl::asset::E_FORMAT::EF_UNKNOWN);
-							ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(slot.resource.get()),
-								bnd.info.buffer.format, (uint32_t)bnd.info.buffer.offset, (uint32_t)bnd.info.buffer.size);
-						}
-						else
-						{
-							ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(slot.resource.get()),
-								(uint32_t)bnd.info.buffer.offset, (uint32_t)bnd.info.buffer.size);
-						}
-					}
-					else if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_IMAGE)
-					{
-						ds.update(device, writes + updated, infos + updated, b, static_cast<ImageResource*>(slot.resource.get()),
-							bnd.sampler.get(), bnd.info.image.layout,
-							bnd.info.image.viewtype, bnd.info.image.format, bnd.info.image.aspect,
-							bnd.info.image.mipOffset, bnd.info.image.mipCount,
-							bnd.info.image.layerOffset, bnd.info.image.layerCount
-						);
-					}
-					else
-					{
-						KRIS_ASSERT(false);
-					}
-
-					updated++;
-				}
-			}
-
-			if (updated > 0U)
-			{
-				device->updateDescriptorSets(updated, writes, 0U, nullptr);
-			}
-		}
+		void updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx);
 
 		bool livesInPass(EPass pass)
 		{
