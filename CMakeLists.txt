@@ -8,6 +8,7 @@ set(KRIS_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/renderer.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/resource_allocator.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/cmd_recorder.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/material.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/material_builder.cpp"
 )
 set(KRIS_INCLUDES

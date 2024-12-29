@@ -5,6 +5,9 @@
 
 namespace kris
 {
+	// fwd decl, for creatorRenderer memeber
+	class Renderer;
+
 	struct ResourceMap
 	{
 		struct Slot
@@ -258,18 +261,11 @@ namespace kris
 			return (m_passMask & (1U << pass)) != 0U;
 		}
 
-		nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const
-		{
-			KRIS_ASSERT(!m_gfxPso[0] != !m_computePso[0]); // gfx and compute pipelines cannot be both null and cannot be both present
+		virtual nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const = 0;
 
-			if (m_computePso[0])
-				return nbl::asset::EPBP_COMPUTE;
-			return nbl::asset::EPBP_GRAPHICS;
-		}
-
+		Renderer* m_creatorRenderer;
 		DescriptorSet m_ds3[FramesInFlight];
-		refctd<nbl::video::IGPUGraphicsPipeline> m_gfxPso[NumPasses];
-		refctd<nbl::video::IGPUComputePipeline> m_computePso[NumPasses];
+
 		struct Binding
 		{
 			uint32_t rmapIx = DefaultBufferResourceMapSlot;
@@ -308,5 +304,55 @@ namespace kris
 		uint32_t m_passMask;
 		uint32_t m_bndMask;
 		// TODO: push constants?
+	};
+
+	class GfxMaterial : public Material
+	{
+	public:
+		using Material::Material;
+
+		nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const override { return nbl::asset::EPBP_GRAPHICS; }
+
+		struct GfxShaders
+		{
+			refctd<nbl::video::IGPUShader> vertex;
+			refctd<nbl::video::IGPUShader> pixel;
+
+			bool present() const
+			{
+				KRIS_ASSERT_MSG(!vertex == !pixel, "Vertex and Pixel shader must both be present or not present.")
+					return vertex && pixel;
+			}
+		} m_gfxShaders[NumPasses];
+
+		nbl::video::IGPUGraphicsPipeline* getGfxPipeline(EPass pass, const nbl::asset::SVertexInputParams& vtxinput);
+
+	private:
+		enum : uint32_t
+		{
+			PipelineCacheCapacity = 10U
+		};
+
+		struct PsoCacheEntry
+		{
+			nbl::asset::SVertexInputParams vtxinput;
+			refctd<nbl::video::IGPUGraphicsPipeline> pso;
+		};
+
+		struct PsoCache
+		{
+			PsoCacheEntry entries[PipelineCacheCapacity];
+			uint32_t size = 0U;
+		} m_psoCache;
+	};
+
+	class ComputeMaterial : public Material
+	{
+	public:
+		using Material::Material;
+
+		nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const override { return nbl::asset::EPBP_COMPUTE; }
+
+		refctd<nbl::video::IGPUComputePipeline> m_computePso[NumPasses];
 	};
 }

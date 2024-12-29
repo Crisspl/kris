@@ -71,39 +71,38 @@ namespace kris
 		}
 
 		void dispatch(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, 
-			Material* mtl, uint32_t wgcx, uint32_t wgcy, uint32_t wgcz)
+			ComputeMaterial* mtl, uint32_t wgcx, uint32_t wgcy, uint32_t wgcz)
 		{
-			setMaterial(device, frameIx, pass, rmap, mtl);
+			setComputeMaterial(device, frameIx, pass, rmap, mtl);
 
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
-		void setMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, Material* mtl)
+		void setGfxMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, 
+			const nbl::asset::SVertexInputParams& vtxinput, const ResourceMap* rmap, GfxMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
 
-			const nbl::video::IGPUPipelineLayout* layout = nullptr;
-			if (mtl->getMtlType() == nbl::asset::EPBP_COMPUTE)
-			{
-				auto& pso = mtl->m_computePso[pass];
-				layout = pso->getLayout();
-				cmdbuf->bindComputePipeline(pso.get());
-			}
-			else
-			{
-				auto& pso = mtl->m_gfxPso[pass];
-				layout = pso->getLayout();
-				cmdbuf->bindGraphicsPipeline(pso.get());
-			}
+			nbl::video::IGPUGraphicsPipeline* pso = mtl->getGfxPipeline(pass, vtxinput);
+			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
+			cmdbuf->bindGraphicsPipeline(pso);
 
-			const bool hasDescSet = layout->getDescriptorSetLayout(MaterialDescSetIndex) != nullptr;
+			mtl->updateDescSet(device, frameIx, rmap);
 
-			if (hasDescSet)
-			{
-				mtl->updateDescSet(device, frameIx, rmap);
+			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
+		}
 
-				bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
-			}
+		void setComputeMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, const ResourceMap* rmap, ComputeMaterial* mtl)
+		{
+			KRIS_ASSERT(mtl->livesInPass(pass));
+
+			auto& pso = mtl->m_computePso[pass];
+			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
+			cmdbuf->bindComputePipeline(pso.get());
+
+			mtl->updateDescSet(device, frameIx, rmap);
+
+			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
 		}
 
 	private:

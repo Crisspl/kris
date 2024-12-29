@@ -378,7 +378,8 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass), 
+				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 
 #define RMAP_OUTPUT_BUF kris::FirstUsableResourceMapSlot
 			static_assert(RMAP_OUTPUT_BUF >= kris::FirstUsableResourceMapSlot);
@@ -412,10 +413,10 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			kris::MaterialBuilder mtlbuilder(m_system.get()); 
 			
 			{
-				auto cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
+				m_cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
 				{
-					auto& vtxbuf_data = cubedata.bindings[0].buffer;
+					auto& vtxbuf_data = m_cubedata.bindings[0].buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = vtxbuf_data->getSize();
@@ -428,7 +429,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				}
 				
 				{
-					auto& idxbuf_data = cubedata.indexBuffer.buffer;
+					auto& idxbuf_data = m_cubedata.indexBuffer.buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = idxbuf_data->getSize();
@@ -440,15 +441,16 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					m_idxbuf->unmap();
 				}
 
-				m_gfxmtl = mtlbuilder.buildMaterial(&m_Renderer, m_logger.get(), renderpass, localInputCWD / "materials/cube.mat");
+				m_gfxmtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
 			}
 
-			// set rmap
 			{
+				// set rmap
 				m_Renderer.resourceMap[RMAP_OUTPUT_BUF] = m_buffAllocation.get();
+
+				m_mtl = mtlbuilder.buildComputeMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/hellocompute.mat");
 			}
 
-			m_mtl = mtlbuilder.buildMaterial(&m_Renderer, m_logger.get(), renderpass, localInputCWD / "materials/hellocompute.mat");
 
 			// There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
 			// The tracking causes circular references from the resource back to the m_device, so unless we poll at the end of the application, they resources used by last submit will leak.
@@ -564,7 +566,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					bnd.offset = 0;
 					cmdrec.cmdbuf->bindIndexBuffer(bnd, nbl::asset::EIT_16BIT);
 				}
-				cmdrec.setMaterial(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, &m_Renderer.resourceMap, m_gfxmtl.get());
+				cmdrec.setGfxMaterial(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, m_cubedata.inputParams, &m_Renderer.resourceMap, m_gfxmtl.get());
 				cmdrec.cmdbuf->drawIndexed(36, 1, 0, 0, 0);
 
 				cmdrec.cmdbuf->endRenderPass();
@@ -625,11 +627,13 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
 
+		GeometryCreator::return_type m_cubedata;
+
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
 		kris::refctd<kris::BufferResource> m_buffAllocation;
-		kris::refctd<kris::Material> m_gfxmtl;
-		kris::refctd<kris::Material> m_mtl;
+		kris::refctd<kris::GfxMaterial> m_gfxmtl;
+		kris::refctd<kris::ComputeMaterial> m_mtl;
 
 		kris::refctd<kris::BufferResource> m_vtxbuf;
 		kris::refctd<kris::BufferResource> m_idxbuf;

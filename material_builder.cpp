@@ -178,7 +178,7 @@ namespace kris
         return compiler->compileToSPIRV(hlsl, options);
     }
 
-    refctd<Material> MaterialBuilder::buildMaterial(Renderer* renderer, nbl::system::ILogger* logger, nbl::video::IGPURenderpass* renderpass, const nbl::system::path& filepath)
+    refctd<Material> MaterialBuilder::buildMaterial(Renderer* renderer, nbl::system::ILogger* logger, const nbl::system::path& filepath)
     {
         const char* bindings = nullptr;
         const char* compute = nullptr;
@@ -250,30 +250,40 @@ namespace kris
             offset += 1ULL;
         }
 
-        auto mtl = renderer->createMaterial(1U << Material::BasePass, 0U /*to be adjusted*/);
-        if (bindings)
-        {
-            mtl->m_bndMask = parseBindings(bindings, mtl->m_bindings);
-        }
-
+        refctd<Material> mtl;
         if (compute)
         {
             KRIS_ASSERT(vertex == nullptr && pixel == nullptr);
 
-            auto comp = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_COMPUTE, compute);
-            mtl->m_computePso[Material::BasePass] = renderer->createComputePipelineForMaterial(comp.get());
+            auto cmtl = renderer->createComputeMaterial(1U << Material::BasePass, 0U /*to be adjusted*/);
 
-            return mtl;
+            auto comp = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_COMPUTE, compute);
+            cmtl->m_computePso[Material::BasePass] = renderer->createComputePipelineForMaterial(comp.get());
+
+            mtl = std::move(cmtl);
         }
         else
         {
             KRIS_ASSERT(compute == nullptr);
 
-            auto vert = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_VERTEX, vertex);
-            auto frag = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_FRAGMENT, pixel);
-            mtl->m_gfxPso[Material::BasePass] = renderer->createGraphicsPipelineForMaterial(renderpass, vert.get(), frag.get());
+            auto gmtl = renderer->createGfxMaterial(1U << Material::BasePass, 0U /*to be adjusted*/);
 
-            return mtl;
+            auto cpuvert = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_VERTEX, vertex);
+            KRIS_ASSERT(cpuvert);
+            auto cpufrag = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_FRAGMENT, pixel);
+            KRIS_ASSERT(cpufrag);
+            
+            gmtl->m_gfxShaders[Material::BasePass].vertex = renderer->createShader(cpuvert.get());
+            gmtl->m_gfxShaders[Material::BasePass].pixel = renderer->createShader(cpufrag.get());
+
+            mtl = std::move(gmtl);
         }
+
+        if (bindings)
+        {
+            mtl->m_bndMask = parseBindings(bindings, mtl->m_bindings);
+        }
+
+        return mtl;
     }
 }

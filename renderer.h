@@ -36,22 +36,6 @@ namespace kris
 		};
 
 	public:
-#include "nbl/nblpack.h"
-		struct CommonVertex
-		{
-			float pos[3];
-			uint8_t color[4]; // normalized
-			uint8_t uv[2];
-			int8_t normal[3];
-			uint8_t dummy[3];
-
-			void setPos(float x, float y, float z) { pos[0] = x; pos[1] = y; pos[2] = z; }
-			void translate(float dx, float dy, float dz) { pos[0] += dx; pos[1] += dy; pos[2] += dz; }
-			void setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) { color[0] = r; color[1] = g; color[2] = b; color[3] = a; }
-			void setNormal(int8_t x, int8_t y, int8_t z) { normal[0] = x; normal[1] = y; normal[2] = z; }
-			void setUv(uint8_t u, uint8_t v) { uv[0] = u; uv[1] = v; }
-		} PACK_STRUCT;
-
 		ResourceMap resourceMap;
 
 		BufferResource* getDefaultBufferResource()
@@ -70,9 +54,11 @@ namespace kris
 
 		Renderer() = default;
 
-		void init(refctd<nbl::video::ILogicalDevice>&& dev, uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
+		void init(refctd<nbl::video::ILogicalDevice>&& dev, refctd<nbl::video::IGPURenderpass>&& renderpass,
+			uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
 		{
 			m_device = std::move(dev);
+			m_renderpass = std::move(renderpass);
 			m_fence = m_device->createSemaphore(FenceInitialVal);
 			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
 
@@ -183,10 +169,11 @@ namespace kris
 			return ds;
 		}
 
-		// After creating via this call, material still has needs pipeline(s) and bindings filled
-		refctd<Material> createMaterial(uint32_t passMask, uint32_t bndMask)
+		template <typename MtlType>
+		refctd<MtlType> createMaterial(uint32_t passMask, uint32_t bndMask)
 		{
-			auto mtl = nbl::core::make_smart_refctd_ptr<kris::Material>(passMask, bndMask);
+			auto mtl = nbl::core::make_smart_refctd_ptr<MtlType>(passMask, bndMask);
+			mtl->m_creatorRenderer = this;
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
 				kris::DescriptorSet ds = createDescriptorSetForMaterial();
@@ -196,14 +183,24 @@ namespace kris
 			return mtl;
 		}
 
-		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(nbl::video::IGPURenderpass* renderpass, nbl::asset::ICPUShader* cpuvert, nbl::asset::ICPUShader* cpufrag)
+		// After creating via this call, material still has needs pipeline(s) and bindings filled
+		refctd<GfxMaterial> createGfxMaterial(uint32_t passMask, uint32_t bndMask)
 		{
-			auto vert = m_device->createShader(cpuvert);
-			auto frag = m_device->createShader(cpufrag);
+			return createMaterial<GfxMaterial>(passMask, bndMask);
+		}
+		// After creating via this call, material still has needs pipeline(s) and bindings filled
+		refctd<ComputeMaterial> createComputeMaterial(uint32_t passMask, uint32_t bndMask)
+		{
+			return createMaterial<ComputeMaterial>(passMask, bndMask);
+		}
+
+		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(Material::EPass pass, const GfxMaterial::GfxShaders& shaders, const nbl::asset::SVertexInputParams& vtxinput)
+		{
+			KRIS_UNUSED_PARAM(pass);
 
 			nbl::video::IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader = vert.get()},
-				{.shader = frag.get()},
+				{.shader = shaders.vertex.get() },
+				{.shader = shaders.pixel.get() },
 			};
 
 			nbl::asset::SBlendParams blendParams = {};
@@ -222,24 +219,16 @@ namespace kris
 
 			nbl::asset::SPrimitiveAssemblyParams assemblyParams;
 
-			constexpr size_t vertexSize = sizeof(CommonVertex);
-			nbl::asset::SVertexInputParams inputParams = { 0b1111u,0b1u,{
-												{0u,nbl::asset::EF_R32G32B32_SFLOAT,offsetof(CommonVertex,pos)},
-												{0u,nbl::asset::EF_R8G8B8A8_UNORM,offsetof(CommonVertex,color)},
-												{0u,nbl::asset::EF_R8G8_USCALED,offsetof(CommonVertex,uv)},
-												{0u,nbl::asset::EF_R8G8B8_SSCALED,offsetof(CommonVertex,normal)}
-											},{vertexSize,nbl::asset::SVertexInputBindingParams::EVIR_PER_VERTEX} };
-
 			nbl::video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = m_mtlPplnLayout.get();
 			params[0].shaders = specInfo;
 			params[0].cached = {
-				.vertexInput = inputParams,
+				.vertexInput = vtxinput,
 				.primitiveAssembly = assemblyParams,
 				.rasterization = rasterParams,
 				.blend = blendParams,
 			};
-			params[0].renderpass = renderpass;
+			params[0].renderpass = m_renderpass.get();
 
 			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
 
@@ -264,6 +253,11 @@ namespace kris
 			KRIS_ASSERT(result);
 
 			return pipeline;
+		}
+
+		refctd<nbl::video::IGPUShader> createShader(const nbl::asset::ICPUShader* cpushader)
+		{
+			return m_device->createShader(cpushader);
 		}
 
 		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
@@ -364,6 +358,7 @@ namespace kris
 		uint64_t m_currentFrameVal = FenceInitialVal + 1ULL;
 
 		refctd<nbl::video::ILogicalDevice> m_device;
+		refctd<nbl::video::IGPURenderpass> m_renderpass;
 
 		refctd<nbl::video::ISemaphore> m_fence;
 
