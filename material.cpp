@@ -54,23 +54,32 @@ namespace kris
 		if (!valid)
 			return nullptr;
 
-		for (uint32_t i = 0U; i < m_psoCache.size; ++i)
+		auto& psoCache = m_psoCache[pass];
+
+		for (uint32_t i = 0U; i < PipelineCacheCapacity; ++i)
 		{
-			if (compareVtxInputs(m_psoCache.entries[i].vtxinput, vtxinput))
-				return m_psoCache.entries[i].pso.get();
+			if (!psoCache.entries[i].pso) // if we encountered null here, all further will also be null
+				break;
+			if (compareVtxInputs(psoCache.entries[i].vtxinput, vtxinput))
+				return psoCache.getPsoAt(i);
 		}
 
-		if (m_psoCache.size == PipelineCacheCapacity)
+		auto pso = m_creatorRenderer->createGraphicsPipelineForMaterial(pass, m_gfxShaders[pass], vtxinput);
+
+		// Look for the longest untouched pso, or for empty spot
+		uint32_t ixToReplace = 0U;
+		for (uint32_t i = 0U; i < PipelineCacheCapacity; ++i)
 		{
-			KRIS_ASSERT(false);
-			return nullptr;
+			if (!psoCache.entries[i].pso)
+			{
+				return psoCache.setPsoAt(i, vtxinput, std::move(pso));
+			}
+			if (psoCache.entries[ixToReplace].timestamp > psoCache.entries[i].timestamp)
+			{
+				ixToReplace = i;
+			}
 		}
 
-		m_psoCache.entries[m_psoCache.size++] = {
-			.vtxinput = vtxinput,
-			.pso = m_creatorRenderer->createGraphicsPipelineForMaterial(pass, m_gfxShaders[pass], vtxinput)
-		};
-
-		return m_psoCache.entries[m_psoCache.size - 1U].pso.get();
+		return psoCache.setPsoAt(ixToReplace, vtxinput, std::move(pso));
 	}
 }

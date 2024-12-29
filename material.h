@@ -337,13 +337,28 @@ namespace kris
 		{
 			nbl::asset::SVertexInputParams vtxinput;
 			refctd<nbl::video::IGPUGraphicsPipeline> pso;
+			uint64_t timestamp = 0ULL;
 		};
 
 		struct PsoCache
 		{
 			PsoCacheEntry entries[PipelineCacheCapacity];
-			uint32_t size = 0U;
-		} m_psoCache;
+			uint64_t counter = 0ULL;
+
+			nbl::video::IGPUGraphicsPipeline* getPsoAt(uint32_t ix)
+			{
+				entries[ix].timestamp = counter++;
+				return entries[ix].pso.get();
+			}
+			nbl::video::IGPUGraphicsPipeline* setPsoAt(uint32_t ix, nbl::asset::SVertexInputParams vtxinput, refctd<nbl::video::IGPUGraphicsPipeline>&& pso)
+			{
+				auto& e = entries[ix];
+				e.vtxinput = vtxinput;
+				e.pso = std::move(pso);
+				e.timestamp = counter++;
+				return e.pso.get();
+			}
+		} m_psoCache[NumPasses];
 	};
 
 	class ComputeMaterial : public Material
