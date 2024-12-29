@@ -53,10 +53,12 @@ namespace kris
 			DeferredAllocDeletion resources;
 		};
 
+		uint32_t frameIx = 0U;
 		Material::EPass pass = Material::EPass::NumPasses;
 		refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
 
-		explicit CommandRecorder(Material::EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
+		explicit CommandRecorder(uint32_t _frameix, Material::EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
+			frameIx(_frameix),
 			pass(_pass),
 			cmdbuf(std::move(cb))
 		{
@@ -70,15 +72,15 @@ namespace kris
 			out_Result.resources = std::move(m_resources);
 		}
 
-		void dispatch(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass,
+		void dispatch(nbl::video::ILogicalDevice* device, Material::EPass pass,
 			ComputeMaterial* mtl, uint32_t wgcx, uint32_t wgcy, uint32_t wgcz)
 		{
-			setComputeMaterial(device, frameIx, pass, mtl);
+			setComputeMaterial(device, pass, mtl);
 
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
-		void setGfxMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, 
+		void setGfxMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, 
 			const nbl::asset::SVertexInputParams& vtxinput, GfxMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
@@ -92,7 +94,7 @@ namespace kris
 			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
 		}
 
-		void setComputeMaterial(nbl::video::ILogicalDevice* device, uint32_t frameIx, Material::EPass pass, ComputeMaterial* mtl)
+		void setComputeMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, ComputeMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
 

@@ -266,7 +266,7 @@ namespace kris
 		{
 			refctd<nbl::video::IGPUCommandBuffer>& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][pass];
 			
-			return CommandRecorder(pass, std::move(cmdbuf));
+			return CommandRecorder(getCurrentFrameIx(), pass, std::move(cmdbuf));
 		}
 
 		void consumeAsPass(Material::EPass pass, CommandRecorder&& cmdrec)

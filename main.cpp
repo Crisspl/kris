@@ -511,7 +511,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				//cmdrec.cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
 				//cmdrec.bindDescriptorSet(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0U, &ds);
 				//cmdrec.cmdbuf->dispatch(WorkgroupCount, 1, 1);
-				cmdrec.dispatch(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1);
+				cmdrec.dispatch(m_device.get(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1);
 				cmdrec.cmdbuf->endDebugMarker();
 
 				asset::SViewport viewport;
@@ -566,7 +566,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					bnd.offset = 0;
 					cmdrec.cmdbuf->bindIndexBuffer(bnd, nbl::asset::EIT_16BIT);
 				}
-				cmdrec.setGfxMaterial(m_device.get(), m_Renderer.getCurrentFrameIx(), kris::Material::BasePass, m_cubedata.inputParams, m_gfxmtl.get());
+				cmdrec.setGfxMaterial(m_device.get(), kris::Material::BasePass, m_cubedata.inputParams, m_gfxmtl.get());
 				cmdrec.cmdbuf->drawIndexed(36, 1, 0, 0, 0);
 
 				cmdrec.cmdbuf->endRenderPass();
