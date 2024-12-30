@@ -28,10 +28,169 @@ namespace kris
             return Size_FullRange;
         return parseNumber(str);
     }
+
+    static nbl::video::IGPUImage::E_ASPECT_FLAGS parseAspect(const char* str)
+    {
+        const char COLOR_str[] = "COLOR";
+        const char DEPTH_str[] = "DEPTH";
+        const char STENCIL_str[] = "STENCIL";
+        const char METADATA_str[] = "METADATA";
+
+        if (strncmp(str, COLOR_str, sizeof(COLOR_str)-1) == 0)
+            return nbl::video::IGPUImage::EAF_COLOR_BIT;
+        if (strncmp(str, DEPTH_str, sizeof(DEPTH_str)-1) == 0)
+            return nbl::video::IGPUImage::EAF_DEPTH_BIT;
+        if (strncmp(str, STENCIL_str, sizeof(STENCIL_str)-1) == 0)
+            return nbl::video::IGPUImage::EAF_STENCIL_BIT;
+        if (strncmp(str, METADATA_str, sizeof(METADATA_str)-1) == 0)
+            return nbl::video::IGPUImage::EAF_METADATA_BIT;
+        return nbl::video::IGPUImage::EAF_COLOR_BIT;
+    }
+    static nbl::video::IGPUImageView::E_TYPE parseView(const char* str)
+    {
+        const char _1D_str[] = "1D";
+        const char _2D_str[] = "2D";
+        const char _3D_str[] = "3D";
+        const char CUBE_str[] = "CUBE";
+        const char _1DARRAY_str[] = "1DARRAY";
+        const char _2DARRAY_str[] = "2DARRAY";
+        const char CUBEARRAY_str[] = "CUBEARRAY";
+
+        if (strncmp(str, _1D_str, sizeof(_1D_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_1D;
+        if (strncmp(str, _2D_str, sizeof(_2D_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_2D;
+        if (strncmp(str, _3D_str, sizeof(_3D_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_3D;
+        if (strncmp(str, CUBE_str, sizeof(CUBE_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_CUBE_MAP;
+        if (strncmp(str, _1DARRAY_str, sizeof(_1DARRAY_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_1D_ARRAY;
+        if (strncmp(str, _2DARRAY_str, sizeof(_2DARRAY_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_2D_ARRAY;
+        if (strncmp(str, CUBEARRAY_str, sizeof(CUBEARRAY_str) - 1) == 0)
+            return nbl::video::IGPUImageView::ET_CUBE_MAP_ARRAY;
+        return nbl::video::IGPUImageView::ET_2D;
+    }
+    static nbl::video::IGPUImage::LAYOUT parseLayout(const char* str)
+    {
+        const char UNDEFINED_str[] = "UNDEFINED";
+        const char GENERAL_str[] = "GENERAL";
+        const char RO_OPTIMAL_str[] = "RO_OPTIMAL";
+        const char ATT_OPTIMAL_str[] = "ATT_OPTIMAL";
+
+        if (strncmp(str, UNDEFINED_str, sizeof(UNDEFINED_str) - 1) == 0)
+            return nbl::video::IGPUImage::LAYOUT::UNDEFINED;
+        if (strncmp(str, GENERAL_str, sizeof(GENERAL_str) - 1) == 0)
+            return nbl::video::IGPUImage::LAYOUT::GENERAL;
+        if (strncmp(str, RO_OPTIMAL_str, sizeof(RO_OPTIMAL_str) - 1) == 0)
+            return nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
+        if (strncmp(str, ATT_OPTIMAL_str, sizeof(ATT_OPTIMAL_str) - 1) == 0)
+            return nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL;
+        return nbl::video::IGPUImage::LAYOUT::UNDEFINED;
+    }
     
     static void parseTextureBindingSlot(const char* str, Material::Binding& bnd)
     {
+        const char* rmap = nullptr;
+        const char* viewtype = nullptr;
+        const char* aspect = nullptr;
+        const char* layout = nullptr;
+        const char* mipoffset = nullptr;
+        const char* mipcount = nullptr;
+        const char* layeroffset = nullptr;
+        const char* layercount = nullptr;
 
+        struct BndParam
+        {
+            const char** start;
+            const char* name;
+
+            size_t namelen() const { return strlen(name); }
+        } params[] = {
+            {
+                &rmap,
+                "rmap="
+            },
+            {
+                &viewtype,
+                "view="
+            },
+            {
+                &aspect,
+                "aspect="
+            },
+            {
+                &layout,
+                "layout="
+            },
+            {
+                &mipoffset,
+                "mipoffset="
+            },
+            {
+                &mipcount,
+                "mipcount="
+            },
+            {
+                &layeroffset,
+                "layeroffset="
+            },
+            {
+                &layercount,
+                "layercount="
+            },
+        };
+
+        while ((str = nextline(str)) && str[0] != '$')
+        {
+            for (auto& p : params)
+            {
+                const size_t namelen = p.namelen();
+                if (strncmp(p.name, str, namelen) == 0)
+                {
+                    *p.start = str + namelen;
+                    break;
+                }
+            }
+        }
+
+        bnd.info.image.mipOffset = 0;
+        bnd.info.image.mipCount = MipCount_FullRange;
+        bnd.info.image.layerOffset = 0;
+        bnd.info.image.layerCount = LayerCount_FullRange;
+        bnd.info.image.aspect = nbl::video::IGPUImage::EAF_COLOR_BIT;
+        bnd.info.image.viewtype = nbl::video::IGPUImageView::ET_2D;
+        bnd.info.image.layout = nbl::video::IGPUImage::LAYOUT::UNDEFINED;
+
+        if (mipoffset)
+        {
+            bnd.info.image.mipOffset = parseNumber(mipoffset);
+        }
+        if (mipcount)
+        {
+            bnd.info.image.mipCount = parseNumber(mipcount);
+        }
+        if (layeroffset)
+        {
+            bnd.info.image.layerOffset = parseNumber(layeroffset);
+        }
+        if (layercount)
+        {
+            bnd.info.image.layerCount = parseNumber(layercount);
+        }
+        if (aspect)
+        {
+            bnd.info.image.aspect = parseAspect(aspect);
+        }
+        if (viewtype)
+        {
+            bnd.info.image.viewtype = parseView(viewtype);
+        }
+        if (layout)
+        {
+            bnd.info.image.layout = parseLayout(layout);
+        }
     }
 
     static void parseBufferBindingSlot(const char* str, Material::Binding& bnd)

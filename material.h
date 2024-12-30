@@ -165,7 +165,6 @@ namespace kris
 
 					m_bindings[i].info.image.aspect = nbl::asset::IImage::EAF_COLOR_BIT;
 					m_bindings[i].info.image.layout = nbl::video::IGPUImage::LAYOUT::GENERAL;
-					m_bindings[i].info.image.format = nbl::asset::EF_R8_UNORM;
 					m_bindings[i].info.image.viewtype = nbl::video::IGPUImageView::ET_2D;
 					m_bindings[i].info.image.mipOffset = m_bindings[i].info.image.layerOffset = 0;
 					m_bindings[i].info.image.mipCount = MipCount_FullRange;
@@ -202,7 +201,6 @@ namespace kris
 				ExtraInfo()
 				{
 					image.viewtype = nbl::video::IGPUImageView::E_TYPE::ET_COUNT;
-					image.format = nbl::asset::EF_UNKNOWN;
 					image.aspect = nbl::video::IGPUImage::EAF_NONE;
 					image.layout = nbl::video::IGPUImage::LAYOUT::UNDEFINED;
 					image.mipOffset = image.mipCount = image.layerOffset = image.layerCount = 0;
@@ -216,7 +214,6 @@ namespace kris
 				} buffer;
 				struct {
 					nbl::video::IGPUImageView::E_TYPE viewtype;
-					nbl::asset::E_FORMAT format;
 					nbl::core::bitflag<nbl::asset::IImage::E_ASPECT_FLAGS> aspect;
 					nbl::video::IGPUImage::LAYOUT layout;
 					uint32_t mipOffset;

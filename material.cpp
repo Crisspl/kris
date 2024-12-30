@@ -84,9 +84,10 @@ namespace kris
 				}
 				else if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_IMAGE)
 				{
-					ds.update(device, writes + updated, infos + updated, b, static_cast<ImageResource*>(slot.resource.get()),
+					ImageResource* const imgres = static_cast<ImageResource*>(slot.resource.get());
+					ds.update(device, writes + updated, infos + updated, b, imgres,
 						bnd.sampler.get(), bnd.info.image.layout,
-						bnd.info.image.viewtype, bnd.info.image.format, bnd.info.image.aspect,
+						bnd.info.image.viewtype, imgres->getImage()->getCreationParameters().format, bnd.info.image.aspect,
 						bnd.info.image.mipOffset, bnd.info.image.mipCount,
 						bnd.info.image.layerOffset, bnd.info.image.layerCount
 					);
