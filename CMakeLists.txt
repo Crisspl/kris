@@ -10,14 +10,17 @@ set(KRIS_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/cmd_recorder.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/material.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/material_builder.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp"
 )
 set(KRIS_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/kris_common.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/renderer.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/resource_allocator.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resource_utils.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/cmd_recorder.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/material.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/material_builder.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/mesh.h"
 )
 
 nbl_create_executable_project("${KRIS_SOURCES}" "" "${KRIS_INCLUDES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

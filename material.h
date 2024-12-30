@@ -12,31 +12,13 @@ namespace kris
 	{
 		struct Slot
 		{
-			Slot()
+			Slot& operator=(Resource* res)
 			{
-				resource = nullptr;
-				//bDirty = 0; // should it be NOT dirty on init?
-				bIsBuffer = 1; // whatever
-			}
-			Slot& operator=(BufferResource* buffer)
-			{
-				resource = refctd<Resource>(buffer);
-				//bDirty = 1;
-				bIsBuffer = 1;
-				return *this;
-			}
-			Slot& operator=(ImageResource* image)
-			{
-				resource = refctd<Resource>(image);
-				//bDirty = 1;
-				bIsBuffer = 0;
+				resource = refctd<Resource>(res);
 				return *this;
 			}
 
 			refctd<Resource> resource;
-
-			//uint8_t bDirty : 1;
-			uint8_t bIsBuffer : 1;
 		};
 
 		Slot& operator[](size_t ix) { return slots[ix]; }

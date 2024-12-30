@@ -60,6 +60,9 @@ namespace kris
 		Size_FullRange = 0U,
 		MipCount_FullRange = 0U,
 		LayerCount_FullRange = 0U,
+
+		CameraDescSetIndex = 1U,
+		MaterialDescSetIndex = 3U
 	};
 
 #define KRIS_DEBUG_LOGGER_WRITE_TO_STDOUT 1

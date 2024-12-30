@@ -27,6 +27,8 @@ using namespace video;
 #include "renderer.h"
 #include "material.h"
 #include "material_builder.h"
+#include "mesh.h"
+#include "resource_utils.h"
 
 struct GeometryCreator
 {
@@ -415,34 +417,45 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			{
 				m_cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
+				kris::ResourceUtils utils(m_device.get(), getTransferUpQueue()->getFamilyIndex(), &m_ResourceAlctr);
+				utils.beginTransferPass();
+
+				kris::refctd<kris::BufferResource> vtxbuf;
 				{
 					auto& vtxbuf_data = m_cubedata.bindings[0].buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = vtxbuf_data->getSize();
-					ci.usage = nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
-					m_vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getHostVisibleMemoryTypeBits());
-					void* ptr = m_vtxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
-					memcpy(ptr, vtxbuf_data->getPointer(), vtxbuf_data->getSize());
-					m_vtxbuf->invalidate(m_device.get());
-					m_vtxbuf->unmap();
+					ci.usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT) |
+						nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+					vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getDeviceLocalMemoryTypeBits());
+					utils.uploadBufferData(vtxbuf.get(), 0U, vtxbuf->getSize(), vtxbuf_data->getPointer());
 				}
 				
+				kris::refctd<kris::BufferResource> idxbuf;
 				{
 					auto& idxbuf_data = m_cubedata.indexBuffer.buffer;
 
 					nbl::video::IGPUBuffer::SCreationParams ci = {};
 					ci.size = idxbuf_data->getSize();
-					ci.usage = nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT;
-					m_idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getHostVisibleMemoryTypeBits());
-					void* ptr = m_idxbuf->map(nbl::video::IDeviceMemoryAllocation::EMCAF_WRITE);
-					memcpy(ptr, idxbuf_data->getPointer(), idxbuf_data->getSize());
-					m_idxbuf->invalidate(m_device.get());
-					m_idxbuf->unmap();
+					ci.usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT) |
+						nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+					idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getDeviceLocalMemoryTypeBits());
+					utils.uploadBufferData(idxbuf.get(), 0U, idxbuf->getSize(), idxbuf_data->getPointer());
 				}
+				utils.endPassAndSubmit(getTransferUpQueue());
+				utils.blockForSubmit();
 
-				m_gfxmtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
+
+				m_mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
+				m_mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
+				m_mesh->m_vtxBuf = std::move(vtxbuf);
+				m_mesh->m_idxBuf = std::move(idxbuf);
+				m_mesh->m_idxCount = m_cubedata.indexCount;
+				m_mesh->m_idxtype = m_cubedata.indexType;
+				m_mesh->m_vtxinput = m_cubedata.inputParams;
 			}
+
 
 			{
 				// set rmap
@@ -474,8 +487,8 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 		// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
 		void workLoopBody() override 
 		{
-			//m_inputSystem->getDefaultMouse(&mouse);
-			//m_inputSystem->getDefaultKeyboard(&keyboard);
+			m_inputSystem->getDefaultMouse(&mouse);
+			m_inputSystem->getDefaultKeyboard(&keyboard);
 
 			auto updatePresentationTimestamp = [&]()
 				{
@@ -501,7 +514,12 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				return;
 			}
 
-			m_Renderer.beginFrame();
+			camera.beginInputProcessing(nextPresentationTimestamp);
+			mouse.consumeEvents([&](const nbl::ui::IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const nbl::ui::IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			camera.endInputProcessing(nextPresentationTimestamp);
+
+			m_Renderer.beginFrame(&camera);
 
 			{
 				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::Material::BasePass);
@@ -554,20 +572,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
 
-				{
-					nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> bnd;
-					bnd.buffer = kris::refctd<const nbl::video::IGPUBuffer>( m_vtxbuf->getBuffer() );
-					bnd.offset = 0;
-					cmdrec.cmdbuf->bindVertexBuffers(0U, 1U, &bnd);
-				}
-				{
-					nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> bnd;
-					bnd.buffer = kris::refctd<const nbl::video::IGPUBuffer>(m_idxbuf->getBuffer());
-					bnd.offset = 0;
-					cmdrec.cmdbuf->bindIndexBuffer(bnd, nbl::asset::EIT_16BIT);
-				}
-				cmdrec.setGfxMaterial(m_device.get(), kris::Material::BasePass, m_cubedata.inputParams, m_gfxmtl.get());
-				cmdrec.cmdbuf->drawIndexed(36, 1, 0, 0, 0);
+				cmdrec.drawMesh(m_device.get(), kris::Material::BasePass, m_mesh.get());
 
 				cmdrec.cmdbuf->endRenderPass();
 
@@ -631,12 +636,11 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
-		kris::refctd<kris::BufferResource> m_buffAllocation;
-		kris::refctd<kris::GfxMaterial> m_gfxmtl;
-		kris::refctd<kris::ComputeMaterial> m_mtl;
 
-		kris::refctd<kris::BufferResource> m_vtxbuf;
-		kris::refctd<kris::BufferResource> m_idxbuf;
+		kris::refctd<kris::Mesh> m_mesh;
+
+		kris::refctd<kris::BufferResource> m_buffAllocation;
+		kris::refctd<kris::ComputeMaterial> m_mtl;
 };
 
 

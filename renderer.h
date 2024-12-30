@@ -4,6 +4,7 @@
 #include "cmd_recorder.h"
 #include "material.h"
 #include "resource_allocator.h"
+#include "CCamera.hpp"
 
 namespace kris
 {
@@ -93,6 +94,48 @@ namespace kris
 				}
 			}
 
+			// Camera resources
+// cam data buffer
+			{
+				nbl::video::IGPUBuffer::SCreationParams ci = {};
+				ci.usage = nbl::core::bitflag(nbl::video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) |
+					nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT |
+					nbl::video::IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+				ci.size = sizeof(nbl::asset::SBasicViewParameters);
+				m_camResources.camDataBuffer = ra->allocBuffer(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
+				KRIS_ASSERT(m_camResources.camDataBuffer);
+			}
+
+			// cam resources ds layout
+			{
+				nbl::video::IGPUDescriptorSetLayout::SBinding b;
+				{
+					b.binding = 0;
+					b.count = 1;
+					b.immutableSamplers = nullptr;
+					b.stageFlags = nbl::hlsl::ESS_VERTEX;
+					b.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
+					b.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+				}
+				m_camResources.camDsl = m_device->createDescriptorSetLayout({ &b, 1 });
+				KRIS_ASSERT(m_camResources.camDsl);
+			}
+
+			// cam resources ds
+			{
+				m_camResources.camDs = m_descPool[0]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(m_camResources.camDsl));
+				KRIS_ASSERT(m_camResources.camDs);
+
+				nbl::video::IGPUDescriptorSet::SWriteDescriptorSet w;
+				nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+
+				info.desc = refctd<nbl::video::IGPUBuffer>(m_camResources.camDataBuffer->getBuffer());
+				info.info.buffer = { .offset = 0,.size = m_camResources.camDataBuffer->getSize() };
+				w = { .dstSet = m_camResources.camDs.get(), .binding = 0, .arrayElement = 0U, .count = 1U, .info = &info };
+
+				m_device->updateDescriptorSets({ &w, 1 }, {});
+			}
+
 			// material ds layout
 			{
 				nbl::video::IGPUDescriptorSetLayout::SBinding bindings[Material::BindingSlot::BindingSlotCount];
@@ -115,9 +158,10 @@ namespace kris
 
 			// material ppln layout
 			{
-				static_assert(CommandRecorder::MaterialDescSetIndex == 0, "If MaterialDescSetIndex is not 0, this pipeline layout creation needs to be altered!");
+				static_assert(CameraDescSetIndex == 1U, "If CameraDescSetIndex is not 1, this pipeline layout creation needs to be altered!");
+				static_assert(MaterialDescSetIndex == 3U, "If MaterialDescSetIndex is not 3, this pipeline layout creation needs to be altered!");
 
-				m_mtlPplnLayout = m_device->createPipelineLayout({}, refctd(m_mtlDsl));
+				m_mtlPplnLayout = m_device->createPipelineLayout({}, nullptr, refctd(m_camResources.camDsl), nullptr, refctd(m_mtlDsl));
 			}
 
 			//Default resources
@@ -281,7 +325,7 @@ namespace kris
 			m_lifetimeTracker->latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
 		}
 
-		bool beginFrame()
+		bool beginFrame(const Camera* cam)
 		{
 			if (m_currentFrameVal > FramesInFlight)
 			{
@@ -298,7 +342,25 @@ namespace kris
 
 			for (uint32_t p = 0U; p < Material::NumPasses; ++p)
 			{
-				m_cmdbufPasses[getCurrentFrameIx()][p]->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+				auto& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][p];
+
+				cmdbuf->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+				cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_mtlPplnLayout.get(), CameraDescSetIndex, 1U, &m_camResources.camDs.get());
+			}
+
+			
+			{
+				nbl::asset::SBasicViewParameters camdata;
+
+				getCamDataContents(cam, &camdata);
+
+				nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
+				range.buffer = refctd<nbl::video::IGPUBuffer>(m_camResources.camDataBuffer->getBuffer());
+				range.size = range.buffer->getSize();
+
+				auto& firstPassCb = m_cmdbufPasses[getCurrentFrameIx()][0];
+				firstPassCb->updateBuffer(range, &camdata);
 			}
 
 			return true;
@@ -346,6 +408,26 @@ namespace kris
 		uint64_t getCurrentFrameIx() const { return m_currentFrameVal % FramesInFlight; }
 
 	private:
+		void getCamDataContents(const Camera* cam, nbl::asset::SBasicViewParameters* camdata)
+		{
+			const auto viewMatrix = cam->getViewMatrix();
+			const auto viewProjectionMatrix = cam->getConcatenatedMatrix();
+
+			nbl::core::matrix3x4SIMD modelMatrix;
+			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
+			modelMatrix.setRotation(nbl::core::quaternion(0, 0, 0));
+
+			nbl::core::matrix3x4SIMD modelViewMatrix = nbl::core::concatenateBFollowedByA(viewMatrix, modelMatrix);
+			nbl::core::matrix4SIMD modelViewProjectionMatrix = nbl::core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+
+			nbl::core::matrix3x4SIMD normalMatrix;
+			modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
+
+			nbl::asset::SBasicViewParameters& uboData = camdata[0];
+			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
+			memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
+			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
+		}
 		bool blockForFrame(uint64_t val)
 		{
 			const nbl::video::ISemaphore::SWaitInfo waitInfos[1] = { {
@@ -368,6 +450,13 @@ namespace kris
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
 		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][Material::NumPasses];
+
+		// camera ds resources
+		struct {
+			refctd<BufferResource> camDataBuffer;
+			refctd<nbl::video::IGPUDescriptorSetLayout> camDsl;
+			refctd<nbl::video::IGPUDescriptorSet> camDs;
+		} m_camResources;
 
 		refctd<nbl::video::IGPUDescriptorSetLayout> m_mtlDsl;
 		refctd<nbl::video::IGPUPipelineLayout> m_mtlPplnLayout;

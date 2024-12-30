@@ -1,0 +1,65 @@
+$bindings
+
+$vertex
+//#pragma wave shader_stage(vertex)
+struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
+{
+	float4x4 MVP;
+	float3x4 MV;
+	float3x3 normalMat;
+};
+
+#if 1
+// set 1, binding 0
+[[vk::binding(0, 1)]]
+cbuffer CameraData
+{
+    SBasicViewParameters params;
+};
+#endif
+
+struct VSInput
+{
+	[[vk::location(0)]] float3 position : POSITION;
+	[[vk::location(1)]] float4 color : COLOR;
+	[[vk::location(2)]] float2 uv : TEXCOORD;
+	[[vk::location(3)]] float3 normal : NORMAL;
+};
+
+struct PSInput
+{
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float3 normal : NORMAL;
+};
+
+PSInput main(VSInput input)
+{
+    PSInput output;
+#if 1
+    output.position = mul(params.MVP, float4(input.position, 1.0));
+#else
+	output.position = float4(input.position, 1.0f);
+#endif
+    output.color = input.color;
+	output.normal = input.normal;
+    
+    return output;
+}
+
+$pixel
+//#pragma wave shader_stage(fragment)
+
+struct PSInput
+{
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float3 normal : NORMAL;
+};
+
+float4 main(PSInput input) : SV_TARGET
+{
+	//float3 n = normalize(input.normal);
+	//float3 l = normalize(float3(1,1,1));
+	return input.color;// * saturate(dot(n,l));
+}

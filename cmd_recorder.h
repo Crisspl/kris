@@ -3,6 +3,7 @@
 #include "kris_common.h"
 #include "resource_allocator.h"
 #include "material.h"
+#include "mesh.h"
 
 namespace kris
 {
@@ -42,11 +43,6 @@ namespace kris
 
 	struct CommandRecorder
 	{
-		enum : uint32_t
-		{
-			MaterialDescSetIndex = 0U // TODO should be 3
-		};
-
 		struct Result
 		{
 			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
@@ -62,7 +58,8 @@ namespace kris
 			pass(_pass),
 			cmdbuf(std::move(cb))
 		{
-			cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT); // TODO: do we always have one-time submitted cmdbufs?
+			// cmdbuf must be already in recording state when passed to CommandRecorder!
+			KRIS_ASSERT(cmdbuf->getState() == nbl::video::IGPUCommandBuffer::STATE::RECORDING);
 		}
 
 		void endAndObtainResources(Result& out_Result)
@@ -91,7 +88,7 @@ namespace kris
 
 			mtl->updateDescSet(device, frameIx);
 
-			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
+			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, mtl->m_bndMask, &mtl->m_ds3[frameIx]);
 		}
 
 		void setComputeMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, ComputeMaterial* mtl)
@@ -104,23 +101,27 @@ namespace kris
 
 			mtl->updateDescSet(device, frameIx);
 
-			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, &mtl->m_ds3[frameIx]);
+			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, mtl->m_bndMask, &mtl->m_ds3[frameIx]);
 		}
+
+		void drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh);
 
 	private:
 		void bindDescriptorSet(
 			nbl::asset::E_PIPELINE_BIND_POINT q,
 			const nbl::video::IGPUPipelineLayout* layout,
 			uint32_t dsIx,
+			uint32_t bndmask,
 			const DescriptorSet* ds)
 		{
 			cmdbuf->bindDescriptorSets(q, layout, dsIx, 1U, &ds->m_ds.get());
-			for (auto& res : ds->m_resources)
+			for (uint32_t i = 0U; i < DescriptorSet::MaxBindings; ++i)
 			{
-				if (res) // TODO, do we have to check for null?
-					//TODO check if default resource
+				if (bndmask & (1U << i))
 				{
-					m_resources.addResource(refctd<Resource>(res));
+					auto& res = ds->m_resources[i];
+					KRIS_ASSERT(res);
+					m_resources.addResource(refctd(res));
 				}
 			}
 		}

@@ -1,0 +1,18 @@
+$bindings
+$$b0
+rmap=2
+offset=0
+size=FULL
+
+$compute
+//#pragma wave shader_stage(compute)
+
+#define WORKGROUP_SIZE 256
+
+[[vk::binding(0,3)]] RWStructuredBuffer<uint32_t> buff;
+
+[numthreads(WORKGROUP_SIZE,1,1)]
+void main(uint32_t3 ID : SV_DispatchThreadID)
+{
+	buff[ID.x] = ID.x;
+}

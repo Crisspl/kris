@@ -68,7 +68,7 @@ namespace kris
 			{
 				if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER || bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
 				{
-					KRIS_ASSERT(slot.bIsBuffer);
+					//KRIS_ASSERT(slot.bIsBuffer);
 
 					if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
 					{

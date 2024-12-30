@@ -153,6 +153,8 @@ namespace kris
                     return ".vert";
                 else if (stage == nbl::hlsl::ESS_FRAGMENT)
                     return ".frag";
+                KRIS_ASSERT(false);
+                return "";
             }();
 
         const std::string identifier = id + extension;
@@ -174,6 +176,7 @@ namespace kris
         // if you don't set the logger and source identifier you'll have no meaningful errors
         options.preprocessorOptions.sourceIdentifier = identifier.c_str();
         options.preprocessorOptions.logger = logger;
+        options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
 
         return compiler->compileToSPIRV(hlsl, options);
     }
