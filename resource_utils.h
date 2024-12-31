@@ -60,6 +60,66 @@ namespace kris
             region.srcOffset = srcOffset;
             region.size = size;
             m_cmdbuf->copyBuffer(m_stagingResource->getBuffer(), bufferResource->getBuffer(), 1U, &region);
+
+            return true;
+        }
+
+        bool uploadImageData(ImageResource* imageResource, nbl::asset::ICPUImage* srcimg)
+        {
+            nbl::video::IGPUImage::SBufferCopy regions[16];
+            uint32_t mipcount = 0U;
+            {
+                auto srcregions = srcimg->getRegions();
+                mipcount = srcregions.size();
+                std::copy(srcregions.begin(), srcregions.end(), regions);
+            }
+            
+            const size_t size = srcimg->getImageDataSizeInBytes();
+
+            if (size > m_addrAlctr.get_total_size())
+                return false;
+            uint32_t srcOffset = m_addrAlctr.alloc_addr((uint32_t)size, 64U);
+            if (srcOffset == m_addrAlctr.invalid_address)
+                return false;
+
+            void* srcPtr = reinterpret_cast<uint8_t*>(m_stagingResource->getMappedPtr()) + srcOffset;
+            memcpy(srcPtr, srcimg->getBuffer()->getPointer(), size);
+
+            for (uint32_t mip = 0U; mip < mipcount; ++mip)
+            {
+                regions[mip].bufferOffset += srcOffset;
+            }
+
+            IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgbarrier =
+            {
+                .barrier = {
+                    .dep = {
+                    // first usage doesn't need to sync against anything, so leave src default
+                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+                    .srcAccessMask = ACCESS_FLAGS::NONE,
+                    .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
+                    .dstAccessMask = ACCESS_FLAGS::NONE
+                } 
+            },
+            .image = imageResource->getImage(),
+            .subresourceRange = {
+                .aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT,
+                .baseMipLevel = 0,
+                // we'll always do one level at a time
+                .levelCount = mipcount,
+                // all the layers
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+                // first use, can transition away from undefined straight into what we want
+                .oldLayout = nbl::video::IGPUImage::LAYOUT::UNDEFINED,
+                .newLayout = nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+            };
+
+            m_cmdbuf->pipelineBarrier(nbl::asset::E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = {&imgbarrier,1} });
+            
+            m_cmdbuf->copyBufferToImage(m_stagingResource->getBuffer(), imageResource->getImage(), 
+                nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, mipcount, regions);
         }
 
         nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo endPassAndSubmit(nbl::video::IQueue* cmdq)

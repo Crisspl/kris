@@ -15,7 +15,7 @@ namespace kris
 			BlockSizeLog2 = 6U,
 			BlockSize = 1U << BlockSizeLog2,
 
-			MaxRequestableAlignment = 512U,
+			MaxRequestableAlignment = 1024U,
 			//MaxRequestableAlignmentBlocks = std::max((uint32_t) MaxRequestableAlignment >> BlockSizeLog2, 1U)
 		};
 		enum : size_t

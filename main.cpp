@@ -380,6 +380,21 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
+			m_assetMgr = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(kris::refctd(m_system));
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+			auto imageBundle = m_assetMgr->getAsset((localInputCWD / "images/tex.dds").string(), loadParams);
+			auto imageContents = imageBundle.getContents();
+			KRIS_ASSERT(!imageContents.empty());
+			auto cpuimgview = nbl::core::smart_refctd_ptr_static_cast<nbl::asset::ICPUImageView>( *imageContents.begin() );
+			auto& cpuimg = cpuimgview->getCreationParameters().image;
+
+			nbl::video::IGPUImage::SCreationParams params;
+			static_cast<nbl::asset::IImage::SCreationParams&>(params) = cpuimg->getCreationParameters();
+
+			//m_device->createImage()
+			auto gpuimg = m_ResourceAlctr.allocImage(m_device.get(), std::move(params), m_physicalDevice->getDeviceLocalMemoryTypeBits());
+
 			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass), 
 				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 
@@ -443,7 +458,15 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getDeviceLocalMemoryTypeBits());
 					utils.uploadBufferData(idxbuf.get(), 0U, idxbuf->getSize(), idxbuf_data->getPointer());
 				}
+
+				// image upload
+				{
+					utils.uploadImageData(gpuimg.get(), cpuimg.get());
+				}
+
+				//m_api->startCapture();
 				utils.endPassAndSubmit(getTransferUpQueue());
+				//m_api->endCapture();
 				utils.blockForSubmit();
 
 
@@ -631,6 +654,8 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
+
+		kris::refctd<nbl::asset::IAssetManager> m_assetMgr;
 
 		GeometryCreator::return_type m_cubedata;
 
