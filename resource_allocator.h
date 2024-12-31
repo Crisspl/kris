@@ -258,6 +258,9 @@ namespace kris
 			MemHeap::Allocation allocation;
 			refctd<nbl::video::IBackendObject> resource;
 
+			nbl::asset::ACCESS_FLAGS lastAccesses;
+			nbl::asset::PIPELINE_STAGE_FLAGS lastStages;
+
 		protected:
 			void deallocateSelf()
 			{
@@ -444,6 +447,8 @@ namespace kris
 
 			nbl::video::IGPUImage* getImage() const { return static_cast<nbl::video::IGPUImage*>(resource.get()); }
 			size_t getSize() const override { return getImage()->getMemoryReqs().size; }
+
+			nbl::video::IGPUImage::LAYOUT layout;
 		};
 
 		ResourceAllocator()

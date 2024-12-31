@@ -61,16 +61,22 @@ namespace kris
             region.size = size;
             m_cmdbuf->copyBuffer(m_stagingResource->getBuffer(), bufferResource->getBuffer(), 1U, &region);
 
+            bufferResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
+            bufferResource->lastAccesses = nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+
             return true;
         }
 
         bool uploadImageData(ImageResource* imageResource, nbl::asset::ICPUImage* srcimg)
         {
-            nbl::video::IGPUImage::SBufferCopy regions[16];
+            constexpr uint32_t MaxRegions = 16U;
+
+            nbl::video::IGPUImage::SBufferCopy regions[MaxRegions];
             uint32_t mipcount = 0U;
             {
                 auto srcregions = srcimg->getRegions();
                 mipcount = srcregions.size();
+                KRIS_ASSERT(mipcount <= MaxRegions);
                 std::copy(srcregions.begin(), srcregions.end(), regions);
             }
             
@@ -95,10 +101,10 @@ namespace kris
                 .barrier = {
                     .dep = {
                     // first usage doesn't need to sync against anything, so leave src default
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .srcAccessMask = ACCESS_FLAGS::NONE,
-                    .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .dstAccessMask = ACCESS_FLAGS::NONE
+                    .srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::NONE,
+                    .srcAccessMask = nbl::asset::ACCESS_FLAGS::NONE,
+                    .dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::NONE,
+                    .dstAccessMask = nbl::asset::ACCESS_FLAGS::NONE
                 } 
             },
             .image = imageResource->getImage(),
@@ -120,6 +126,10 @@ namespace kris
             
             m_cmdbuf->copyBufferToImage(m_stagingResource->getBuffer(), imageResource->getImage(), 
                 nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, mipcount, regions);
+
+            imageResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
+            imageResource->lastAccesses = nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+            imageResource->layout = nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
         }
 
         nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo endPassAndSubmit(nbl::video::IQueue* cmdq)

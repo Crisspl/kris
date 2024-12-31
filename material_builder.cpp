@@ -87,7 +87,7 @@ namespace kris
             return nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
         if (strncmp(str, ATT_OPTIMAL_str, sizeof(ATT_OPTIMAL_str) - 1) == 0)
             return nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL;
-        return nbl::video::IGPUImage::LAYOUT::UNDEFINED;
+        return nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
     }
     
     static void parseTextureBindingSlot(const char* str, Material::Binding& bnd)
@@ -161,7 +161,7 @@ namespace kris
         bnd.info.image.layerCount = LayerCount_FullRange;
         bnd.info.image.aspect = nbl::video::IGPUImage::EAF_COLOR_BIT;
         bnd.info.image.viewtype = nbl::video::IGPUImageView::ET_2D;
-        bnd.info.image.layout = nbl::video::IGPUImage::LAYOUT::UNDEFINED;
+        bnd.info.image.layout = nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
 
         if (mipoffset)
         {
