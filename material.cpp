@@ -45,9 +45,36 @@ static bool compareVtxInputs(const nbl::asset::SVertexInputParams& lhs, const nb
 	return true;
 }
 
+
 namespace kris
 {
-	void Material::updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx)
+	static void writeImageBarrier(ImageResource* image, 
+		Material::ProtoImageBarrier* barrier,
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> access,
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> stages,
+		nbl::video::IGPUImage::LAYOUT layout)
+	{
+			barrier[0] = {
+				.image = image,
+				.dstaccess = access,
+				.dststages = stages,
+				.dstlayout = layout
+			};
+	}
+
+	static void writeBufferBarrier(BufferResource* buffer,
+		Material::ProtoBufferBarrier* barrier,
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> access,
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> stages)
+	{
+		barrier[0] = {
+			.buffer = buffer,
+			.dstaccess = access,
+			.dststages = stages
+		};
+	}
+
+	BarrierCounts Material::updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx, ProtoBufferBarrier* bbarriers, ProtoImageBarrier* ibarriers)
 	{
 		auto& ds = m_ds3[frameIx];
 		ResourceMap* rmap = &m_creatorRenderer->resourceMap;
@@ -55,6 +82,11 @@ namespace kris
 		nbl::video::IGPUDescriptorSet::SWriteDescriptorSet writes[DescriptorSet::MaxBindings];
 		nbl::video::IGPUDescriptorSet::SDescriptorInfo infos[DescriptorSet::MaxBindings];
 		uint32_t updated = 0U;
+
+		BarrierCounts barrierCounts;
+
+		const auto stagesVsPs = nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT) |
+			nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
 
 		for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
 		{
@@ -64,47 +96,78 @@ namespace kris
 			auto& bnd = m_bindings[b];
 			auto& slot = rmap->slots[bnd.rmapIx];
 
-			if (!slot.resource->compareIds(ds.m_resources[b].get())) // dirty
-			{
-				if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER || bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
-				{
-					//KRIS_ASSERT(slot.bIsBuffer);
+			Resource* const resource = slot.resource.get();
 
-					if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
+			const bool needToUpdate = !resource->compareIds(ds.m_resources[b].get());
+
+			if (isBufferBindingSlot((BindingSlot)b))
+			{
+				//KRIS_ASSERT(slot.bIsBuffer);
+				BufferResource* const bufferResource = static_cast<BufferResource*>(resource);
+
+#if 0
+				if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_BUFFER_VIEW)
+				{
+					if (needToUpdate)
 					{
 						KRIS_ASSERT(bnd.info.buffer.format != nbl::asset::E_FORMAT::EF_UNKNOWN);
-						ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(slot.resource.get()),
+						ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(resource),
 							bnd.info.buffer.format, (uint32_t)bnd.info.buffer.offset, (uint32_t)bnd.info.buffer.size);
 					}
-					else
+
+					KRIS_ASSERT(0); // buffer views are not supported for now
+				}
+				else
+#endif
+				{
+					if (needToUpdate)
 					{
-						ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(slot.resource.get()),
+						ds.update(device, writes + updated, infos + updated, b, static_cast<BufferResource*>(resource),
 							(uint32_t)bnd.info.buffer.offset, (uint32_t)bnd.info.buffer.size);
 					}
+
+					writeBufferBarrier(bufferResource, 
+						bbarriers + barrierCounts.buffer, 
+						getAccessFromBndNum((BindingSlot)b),
+						stagesVsPs);
+					barrierCounts.buffer++;
 				}
-				else if (bnd.descCategory == nbl::asset::IDescriptor::E_CATEGORY::EC_IMAGE)
+			}
+			else if (isTextureBindingSlot((BindingSlot)b))
+			{
+				ImageResource* const imageResource = static_cast<ImageResource*>(resource);
+
+				if (needToUpdate)
 				{
-					ImageResource* const imgres = static_cast<ImageResource*>(slot.resource.get());
-					ds.update(device, writes + updated, infos + updated, b, imgres,
+					ds.update(device, writes + updated, infos + updated, b, imageResource,
 						bnd.sampler.get(), bnd.info.image.layout,
-						bnd.info.image.viewtype, imgres->getImage()->getCreationParameters().format, bnd.info.image.aspect,
+						bnd.info.image.viewtype, imageResource->getImage()->getCreationParameters().format, bnd.info.image.aspect,
 						bnd.info.image.mipOffset, bnd.info.image.mipCount,
 						bnd.info.image.layerOffset, bnd.info.image.layerCount
 					);
 				}
-				else
-				{
-					KRIS_ASSERT(false);
-				}
 
-				updated++;
+				writeImageBarrier(imageResource,
+					ibarriers + barrierCounts.image,
+					getAccessFromBndNum((BindingSlot)b), 
+					stagesVsPs,
+					nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL);
+				barrierCounts.image++;
 			}
+			else
+			{
+				KRIS_ASSERT(false);
+			}
+
+			updated += (needToUpdate ? 1U : 0U);
 		}
 
 		if (updated > 0U)
 		{
 			device->updateDescriptorSets(updated, writes, 0U, nullptr);
 		}
+
+		return barrierCounts;
 	}
 
 	nbl::video::IGPUGraphicsPipeline* GfxMaterial::getGfxPipeline(EPass pass, const nbl::asset::SVertexInputParams& vtxinput)

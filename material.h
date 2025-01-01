@@ -104,6 +104,20 @@ namespace kris
 	class Material : public nbl::core::IReferenceCounted
 	{
 	public:
+		struct ProtoBufferBarrier
+		{
+			BufferResource* buffer;
+			nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess;
+			nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> dststages;
+		};
+		struct ProtoImageBarrier
+		{
+			ImageResource* image;
+			nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess;
+			nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> dststages;
+			nbl::video::IGPUImage::LAYOUT dstlayout;
+		};
+
 		enum BindingSlot : uint32_t
 		{
 			// b0..n - buffers
@@ -127,7 +141,10 @@ namespace kris
 			t7,
 			tMAX=t7,
 
-			BindingSlotCount
+			BindingSlotCount,
+
+			BufferBindingCount = bMAX - b0 + 1,
+			TextureBindingCount = tMAX - t0 + 1,
 		};
 #define kris_bnd(bnd)		kris::Material::BindingSlot::bnd
 #define kris_bndbit(bnd)	(1U << kris::Material::BindingSlot::bnd)
@@ -135,7 +152,33 @@ namespace kris
 
 		static bool isTextureBindingSlot(BindingSlot slot)
 		{
-			return (slot >= BindingSlot::t0) && (slot < BindingSlot::BindingSlotCount);
+			return (slot >= BindingSlot::t0) && (slot <= BindingSlot::tMAX);
+		}
+		static bool isBufferBindingSlot(BindingSlot slot)
+		{
+			return (slot >= BindingSlot::b0) && (slot <= BindingSlot::bMAX);
+		}
+
+		static nbl::asset::IDescriptor::E_TYPE getDescTypeFromBndNum(BindingSlot bnd)
+		{
+			if (bnd <= bMAX)
+				return nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			if (bnd <= tMAX)
+				return nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
+			// TODO uniform buffers
+			KRIS_ASSERT(0);
+			return nbl::asset::IDescriptor::E_TYPE::ET_COUNT;
+		}
+
+		static nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> getAccessFromBndNum(BindingSlot bnd)
+		{
+			if (bnd <= bMAX)
+				return nbl::core::bitflag<nbl::asset::ACCESS_FLAGS>(nbl::asset::ACCESS_FLAGS::STORAGE_READ_BIT) | nbl::asset::ACCESS_FLAGS::STORAGE_WRITE_BIT;
+			if (bnd <= tMAX)
+				return nbl::core::bitflag<nbl::asset::ACCESS_FLAGS>(nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT);
+			// TODO uniform buffers
+			KRIS_ASSERT(0);
+			return nbl::asset::ACCESS_FLAGS::NONE;
 		}
 
 		enum EPass : uint32_t
@@ -151,7 +194,6 @@ namespace kris
 			for (uint32_t i = 0U; i < DescriptorSet::MaxBindings; ++i)
 			{
 				m_bindings[i].rmapIx = isTextureBindingSlot((BindingSlot)i) ? DefaultImageResourceMapSlot : DefaultBufferResourceMapSlot;
-				m_bindings[i].descCategory = isTextureBindingSlot((BindingSlot)i) ? nbl::asset::IDescriptor::EC_IMAGE : nbl::asset::IDescriptor::EC_BUFFER;
 				if (!isTextureBindingSlot((BindingSlot)i))
 				{
 					m_bindings[i].info.buffer.format = nbl::asset::EF_UNKNOWN;
@@ -178,7 +220,7 @@ namespace kris
 
 		}
 
-		void updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx);
+		BarrierCounts updateDescSet(nbl::video::ILogicalDevice* device, uint32_t frameIx, ProtoBufferBarrier* bbarriers, ProtoImageBarrier* ibarriers);
 
 		bool livesInPass(EPass pass)
 		{
@@ -194,7 +236,6 @@ namespace kris
 		struct Binding
 		{
 			uint32_t rmapIx = DefaultBufferResourceMapSlot;
-			nbl::asset::IDescriptor::E_CATEGORY descCategory = nbl::asset::IDescriptor::EC_COUNT;
 			refctd<nbl::video::IGPUSampler> sampler = nullptr;
 			union ExtraInfo
 			{

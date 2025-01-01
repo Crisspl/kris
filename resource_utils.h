@@ -61,8 +61,8 @@ namespace kris
             region.size = size;
             m_cmdbuf->copyBuffer(m_stagingResource->getBuffer(), bufferResource->getBuffer(), 1U, &region);
 
-            bufferResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
             bufferResource->lastAccesses = nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+            bufferResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
 
             return true;
         }
@@ -96,7 +96,8 @@ namespace kris
                 regions[mip].bufferOffset += srcOffset;
             }
 
-            IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgbarrier =
+            using ibarrier_t = nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
+            ibarrier_t imgbarrier =
             {
                 .barrier = {
                     .dep = {
@@ -110,8 +111,8 @@ namespace kris
             .image = imageResource->getImage(),
             .subresourceRange = {
                 .aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT,
+                // all the mips at once
                 .baseMipLevel = 0,
-                // we'll always do one level at a time
                 .levelCount = mipcount,
                 // all the layers
                 .baseArrayLayer = 0,
@@ -127,8 +128,8 @@ namespace kris
             m_cmdbuf->copyBufferToImage(m_stagingResource->getBuffer(), imageResource->getImage(), 
                 nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, mipcount, regions);
 
-            imageResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
             imageResource->lastAccesses = nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+            imageResource->lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT;
             imageResource->layout = nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
         }
 

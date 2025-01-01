@@ -27,7 +27,7 @@
 #define	KRIS_MEM_DELETE(ptr)		delete ptr;
 #define	KRIS_MEM_SAFE_DELETE(ptr)	if (ptr) { KRIS_MEM_DELETE(ptr); }
 
-#define KRIS_UNUSED_PARAM(param)	(void*) param
+#define KRIS_UNUSED_PARAM(param)	((void) param)
 
 #if !KRIS_CFG_SHIPPING
 #define KRIS_ASSERT(cond) \
@@ -109,4 +109,7 @@ namespace kris
 
 	template <typename T>
 	using refctd = nbl::core::smart_refctd_ptr<T>;
+
+	//using BufferBarrier = nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
+	//using ImageBarrier = nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
 }

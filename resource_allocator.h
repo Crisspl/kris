@@ -258,8 +258,8 @@ namespace kris
 			MemHeap::Allocation allocation;
 			refctd<nbl::video::IBackendObject> resource;
 
-			nbl::asset::ACCESS_FLAGS lastAccesses;
-			nbl::asset::PIPELINE_STAGE_FLAGS lastStages;
+			nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> lastAccesses = nbl::asset::ACCESS_FLAGS::NONE;
+			nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::NONE;
 
 		protected:
 			void deallocateSelf()
@@ -516,4 +516,41 @@ namespace kris
 	using Resource = ResourceAllocator::Allocation;
 	using BufferResource = ResourceAllocator::BufferAllocation;
 	using ImageResource = ResourceAllocator::ImageAllocation;
+
+	struct BufferBarrier
+	{
+		BufferResource* buffer;
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess;
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess;
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> srcstages;
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> dststages;
+	};
+	struct ImageBarrier
+	{
+		ImageResource* image;
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess;
+		nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess;
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> srcstages;
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> dststages;
+		nbl::video::IGPUImage::LAYOUT srclayout;
+		nbl::video::IGPUImage::LAYOUT dstlayout;
+	};
+
+	struct BarrierCounts
+	{
+		uint32_t buffer = 0U;
+		uint32_t image = 0U;
+
+		void reset()
+		{
+			buffer = image = 0U;
+		}
+
+		BarrierCounts& operator+=(const BarrierCounts& rhs)
+		{
+			buffer += rhs.buffer;
+			image += rhs.image;
+			return *this;
+		}
+	};
 }

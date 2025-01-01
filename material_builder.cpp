@@ -233,7 +233,6 @@ namespace kris
             }
         }
 
-        // Note: bnd.descCategory is correctly set by Material constructor
         bnd.info.buffer.format = nbl::asset::EF_UNKNOWN;
         if (rmap)
         {

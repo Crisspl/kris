@@ -149,9 +149,7 @@ namespace kris
 					b.immutableSamplers = nullptr;
 					b.stageFlags = nbl::core::bitflag<nbl::asset::IShader::E_SHADER_STAGE>(nbl::hlsl::ESS_VERTEX) | nbl::hlsl::ESS_FRAGMENT | nbl::hlsl::ESS_COMPUTE;
 					b.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
-					b.type = Material::isTextureBindingSlot((Material::BindingSlot)b_num) ?
-						nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER :
-						nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+					b.type = Material::getDescTypeFromBndNum((Material::BindingSlot)b_num);
 				}
 				m_mtlDsl = m_device->createDescriptorSetLayout({ bindings,Material::BindingSlot::BindingSlotCount });
 			}

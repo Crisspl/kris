@@ -74,6 +74,8 @@ namespace kris
 		{
 			setComputeMaterial(device, pass, mtl);
 
+			emitBarrierCmd();
+
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
@@ -86,9 +88,7 @@ namespace kris
 			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
 			cmdbuf->bindGraphicsPipeline(pso);
 
-			mtl->updateDescSet(device, frameIx);
-
-			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, mtl->m_bndMask, &mtl->m_ds3[frameIx]);
+			setMaterialCommon(device, layout, mtl);
 		}
 
 		void setComputeMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, ComputeMaterial* mtl)
@@ -99,14 +99,37 @@ namespace kris
 			const nbl::video::IGPUPipelineLayout* layout = pso->getLayout();
 			cmdbuf->bindComputePipeline(pso.get());
 
-			mtl->updateDescSet(device, frameIx);
+			setMaterialCommon(device, layout, mtl);
+		}
 
+		void setupDrawMesh(nbl::video::ILogicalDevice* device, Mesh* mesh);
+		void drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh);
+
+		void setupMaterial(nbl::video::ILogicalDevice* device, Material* mtl)
+		{
+			Material::ProtoBufferBarrier bbarriers[Material::BufferBindingCount];
+			Material::ProtoImageBarrier ibarriers[Material::TextureBindingCount];
+
+			BarrierCounts count = mtl->updateDescSet(device, frameIx, bbarriers, ibarriers);
+
+			for (uint32_t i = 0U; i < count.buffer; ++i)
+			{
+				auto& bb = bbarriers[i];
+				pushBarrier(bb.buffer, bb.dstaccess, bb.dststages);
+			}
+			for (uint32_t i = 0U; i < count.image; ++i)
+			{
+				auto& ib = ibarriers[i];
+				pushBarrier(ib.image, ib.dstaccess, ib.dststages, ib.dstlayout);
+			}
+		}
+
+	private:
+		void setMaterialCommon(nbl::video::ILogicalDevice* device, const nbl::video::IGPUPipelineLayout* layout, Material* mtl)
+		{
 			bindDescriptorSet(mtl->getMtlType(), layout, MaterialDescSetIndex, mtl->m_bndMask, &mtl->m_ds3[frameIx]);
 		}
 
-		void drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh);
-
-	private:
 		void bindDescriptorSet(
 			nbl::asset::E_PIPELINE_BIND_POINT q,
 			const nbl::video::IGPUPipelineLayout* layout,
@@ -126,6 +149,169 @@ namespace kris
 			}
 		}
 
+		void emitBarrierCmd()
+		{
+			using bbarrier_t = nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
+			using ibarrier_t = nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
+
+			if (m_barriers.count.buffer == 0U && m_barriers.count.image == 0U)
+			{
+				return;
+			}
+
+			bbarrier_t bbarriers[MaxBarriers];
+			for (uint32_t i = 0U; i < m_barriers.count.buffer; ++i)
+			{
+				const auto& b = m_barriers.buffers[i];
+				auto* const buffer = b.buffer;
+				auto& barrier = bbarriers[i];
+
+				barrier = {
+					.barrier = {
+						.dep = {
+							.srcStageMask = b.srcstages,
+							.srcAccessMask = b.srcaccess,
+							.dstStageMask = b.dststages,
+							.dstAccessMask = b.dstaccess
+							}
+						},
+						.range = {
+							.offset = 0ULL,
+							.size = buffer->getSize(),
+							.buffer = refctd<nbl::video::IGPUBuffer>(buffer->getBuffer())
+						}
+				};
+			}
+
+			ibarrier_t ibarriers[MaxBarriers];
+			for (uint32_t i = 0U; i < m_barriers.count.image; ++i)
+			{
+				const auto& b = m_barriers.images[i];
+				auto* const image = b.image;
+				auto& dst = ibarriers[i];
+
+				dst = {
+					.barrier = {
+						.dep = {
+							// first usage doesn't need to sync against anything, so leave src default
+							.srcStageMask = b.srcstages,
+							.srcAccessMask = b.srcaccess,
+							.dstStageMask = b.dststages,
+							.dstAccessMask = b.dstaccess
+						}
+					},
+					.image = image->getImage(),
+					.subresourceRange = {
+						.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT, // TODO
+						// all the mips
+						.baseMipLevel = 0,
+						.levelCount = image->getImage()->getCreationParameters().mipLevels,
+						// all the layers
+						.baseArrayLayer = 0,
+						.layerCount = image->getImage()->getCreationParameters().arrayLayers
+					},
+					.oldLayout = b.srclayout,
+					.newLayout = b.dstlayout
+				};
+			}
+
+			cmdbuf->pipelineBarrier(nbl::asset::EDF_NONE,
+				{
+					.memBarriers = {},
+					.bufBarriers = {bbarriers, m_barriers.count.buffer},
+					.imgBarriers = {ibarriers, m_barriers.count.image} });
+
+			m_barriers.reset();
+		}
+		void emitBarrierCmdIfNeeded(uint32_t bufToBePushed, uint32_t imgToBePushed)
+		{
+			if (m_barriers.shouldBarrierCmdBeEmitted(bufToBePushed, imgToBePushed))
+			{
+				emitBarrierCmd();
+			}
+		}
+
+		bool pushBarrier(BufferResource* buffer, nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> access, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> stages)
+		{
+			emitBarrierCmdIfNeeded(1U, 0U);
+			return m_barriers.pushBarrier(BufferBarrier{
+				.buffer = buffer,
+				.srcaccess = buffer->lastAccesses,
+				.dstaccess = access,
+				.srcstages = buffer->lastStages,
+				.dststages = stages,
+				});
+		}
+		bool pushBarrier(ImageResource* image, nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> access, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> stages, nbl::video::IGPUImage::LAYOUT layout)
+		{
+			emitBarrierCmdIfNeeded(0U, 1U);
+			return m_barriers.pushBarrier(ImageBarrier{
+				.image = image,
+				.srcaccess = image->lastAccesses,
+				.dstaccess = access,
+				.srcstages = image->lastStages,
+				.dststages = stages,
+				.srclayout = image->layout,
+				.dstlayout = layout
+				});
+		}
+
+		static inline constexpr uint32_t MaxBarriers = 50U;
+		struct {
+			BufferBarrier buffers[MaxBarriers];
+			ImageBarrier images[MaxBarriers];
+			BarrierCounts count;
+
+			bool pushBarrier(const BufferBarrier& bb)
+			{
+				bb.buffer->lastAccesses = bb.dstaccess;
+				bb.buffer->lastStages = bb.dststages;
+				if (isBarrierNeededCommon(bb.srcaccess, bb.dstaccess))
+				{
+					buffers[count.buffer++] = bb;
+
+
+					return true;
+				}
+				return false;
+			}
+			bool pushBarrier(const ImageBarrier& ib)
+			{
+				ib.image->lastAccesses = ib.dstaccess;
+				ib.image->lastStages = ib.dststages;
+				if (isBarrierNeededCommon(ib.srcaccess, ib.dstaccess) || ib.srclayout != ib.dstlayout)
+				{
+					images[count.image++] = ib;
+
+					ib.image->layout = ib.dstlayout;
+
+					return true;
+				}
+				return false;
+			}
+
+			bool shouldBarrierCmdBeEmitted(uint32_t bufToBePushed, uint32_t imgToBePushed)
+			{
+				// if next updateDescSet() call might potentially overflow barriers buffer
+				return (count.buffer + bufToBePushed > MaxBarriers) ||
+					(count.image + imgToBePushed > MaxBarriers);
+			}
+			void reset()
+			{
+				count.reset();
+			}
+
+			BufferBarrier* getBuffersPtr() { return buffers + count.buffer; }
+			ImageBarrier* getImagesPtr() { return images + count.image; }
+
+		private:
+			bool isBarrierNeededCommon(nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess, nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstAccess)
+			{
+				KRIS_UNUSED_PARAM(dstAccess);
+
+				return srcaccess.hasAnyFlag(nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS);
+			}
+		} m_barriers;
 		DeferredAllocDeletion m_resources;
 	};
 }

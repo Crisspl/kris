@@ -380,6 +380,9 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
+#define MESS_AROUND_WITH_TEXTURE_LOADING 0
+
+#if MESS_AROUND_WITH_TEXTURE_LOADING
 			m_assetMgr = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(kris::refctd(m_system));
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
@@ -394,6 +397,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 			//m_device->createImage()
 			auto gpuimg = m_ResourceAlctr.allocImage(m_device.get(), std::move(params), m_physicalDevice->getDeviceLocalMemoryTypeBits());
+#endif
 
 			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass), 
 				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
@@ -459,16 +463,17 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					utils.uploadBufferData(idxbuf.get(), 0U, idxbuf->getSize(), idxbuf_data->getPointer());
 				}
 
+#if MESS_AROUND_WITH_TEXTURE_LOADING
 				// image upload
 				{
 					utils.uploadImageData(gpuimg.get(), cpuimg.get());
 				}
+#endif
 
 				//m_api->startCapture();
 				utils.endPassAndSubmit(getTransferUpQueue());
 				//m_api->endCapture();
 				utils.blockForSubmit();
-
 
 				m_mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
 				m_mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
@@ -552,7 +557,8 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				//cmdrec.cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
 				//cmdrec.bindDescriptorSet(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0U, &ds);
 				//cmdrec.cmdbuf->dispatch(WorkgroupCount, 1, 1);
-				cmdrec.dispatch(m_device.get(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1);
+				cmdrec.setupMaterial(m_device.get(), m_mtl.get()); // first setup for dispatch (update desc set, memory barriers)
+				cmdrec.dispatch(m_device.get(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1); // do actual dispatch
 				cmdrec.cmdbuf->endDebugMarker();
 
 				asset::SViewport viewport;
@@ -573,31 +579,38 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				};
 				cmdrec.cmdbuf->setScissor(0u, 1u, &scissor);
 
-
+				// setup draws (update desc sets, memory barriers)
 				{
-					const VkRect2D currentRenderArea =
-					{
-						.offset = {0,0},
-						.extent = {m_window->getWidth(),m_window->getHeight()}
-					};
-
-					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,0.f,1.f} };
-					const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
-					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-					const IGPUCommandBuffer::SRenderpassBeginInfo info =
-					{
-						.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-						.colorClearValues = &clearValue,
-						.depthStencilClearValues = &depthValue,
-						.renderArea = currentRenderArea
-					};
-
-					cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+					cmdrec.setupDrawMesh(m_device.get(), m_mesh.get());
 				}
 
-				cmdrec.drawMesh(m_device.get(), kris::Material::BasePass, m_mesh.get());
+				// do draws within renderpass 
+				{
+					{
+						const VkRect2D currentRenderArea =
+						{
+							.offset = {0,0},
+							.extent = {m_window->getWidth(),m_window->getHeight()}
+						};
 
-				cmdrec.cmdbuf->endRenderPass();
+						const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,0.f,1.f} };
+						const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+						auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+						const IGPUCommandBuffer::SRenderpassBeginInfo info =
+						{
+							.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+							.colorClearValues = &clearValue,
+							.depthStencilClearValues = &depthValue,
+							.renderArea = currentRenderArea
+						};
+
+						cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+					}
+
+					cmdrec.drawMesh(m_device.get(), kris::Material::BasePass, m_mesh.get());
+
+					cmdrec.cmdbuf->endRenderPass();
+				}
 
 				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
 			}
