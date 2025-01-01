@@ -85,8 +85,7 @@ namespace kris
 
 		BarrierCounts barrierCounts;
 
-		const auto stagesVsPs = nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT) |
-			nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+		const auto dstStages = this->getMtlShadersPipelineStageFlags();
 
 		for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
 		{
@@ -129,7 +128,7 @@ namespace kris
 					writeBufferBarrier(bufferResource, 
 						bbarriers + barrierCounts.buffer, 
 						getAccessFromBndNum((BindingSlot)b),
-						stagesVsPs);
+						dstStages);
 					barrierCounts.buffer++;
 				}
 			}
@@ -150,7 +149,7 @@ namespace kris
 				writeImageBarrier(imageResource,
 					ibarriers + barrierCounts.image,
 					getAccessFromBndNum((BindingSlot)b), 
-					stagesVsPs,
+					dstStages,
 					nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL);
 				barrierCounts.image++;
 			}

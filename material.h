@@ -229,6 +229,7 @@ namespace kris
 		}
 
 		virtual nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const = 0;
+		virtual nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> getMtlShadersPipelineStageFlags() const = 0;
 
 		Renderer* m_creatorRenderer;
 		DescriptorSet m_ds3[FramesInFlight];
@@ -276,6 +277,12 @@ namespace kris
 		using Material::Material;
 
 		nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const override { return nbl::asset::EPBP_GRAPHICS; }
+
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> getMtlShadersPipelineStageFlags() const override
+		{
+			return nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT) |
+				nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+		}
 
 		struct GfxShaders
 		{
@@ -331,6 +338,11 @@ namespace kris
 		using Material::Material;
 
 		nbl::asset::E_PIPELINE_BIND_POINT getMtlType() const override { return nbl::asset::EPBP_COMPUTE; }
+
+		nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> getMtlShadersPipelineStageFlags() const override
+		{
+			return nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		}
 
 		refctd<nbl::video::IGPUComputePipeline> m_computePso[NumPasses];
 	};
