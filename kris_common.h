@@ -112,4 +112,45 @@ namespace kris
 
 	//using BufferBarrier = nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
 	//using ImageBarrier = nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>;
+
+	using half = uint16_t;
+
+	inline half f32tof16(float _f)
+	{
+		const uint32_t& fltInt32 = nbl::core::floatBitsToUint(_f);
+		half fltInt16 = 0;
+
+		fltInt16 = (fltInt32 >> 31) << 5;
+		half tmp = (fltInt32 >> 23) & 0xff;
+		tmp = (tmp - 0x70) & ((unsigned int)((int)(0x70 - tmp) >> 4) >> 27);
+		fltInt16 = (fltInt16 | tmp) << 10;
+		fltInt16 |= (fltInt32 >> 13) & 0x3ff;
+
+		return fltInt16;
+	}
+
+	inline float f16tof32(const half in) 
+	{
+		uint32_t t1;
+		uint32_t t2;
+		uint32_t t3;
+
+		t1 = in & 0x7fffu;                       // Non-sign bits
+		t2 = in & 0x8000u;                       // Sign bit
+		t3 = in & 0x7c00u;                       // Exponent
+
+		t1 <<= 13u;                              // Align mantissa on MSB
+		t2 <<= 16u;                              // Shift sign bit into position
+
+		t1 += 0x38000000;                       // Adjust bias
+
+		t1 = (t3 == 0 ? 0 : t1);                // Denormals-as-zero
+
+		t1 |= t2;                               // Re-insert sign bit
+
+		float out = 0.f;
+		*((uint32_t*)&out) = t1;
+
+		return out;
+	}
 }

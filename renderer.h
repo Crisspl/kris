@@ -29,6 +29,7 @@ namespace kris
 			MaxAccStructs = 0U,
 
 			// Other limits
+			MaxCachedSamplers = 50U,
 			
 		};
 		enum : uint64_t
@@ -53,7 +54,10 @@ namespace kris
 			return m_mtlDsl.get();
 		}
 
-		Renderer() = default;
+		Renderer() : m_samplerCache(MaxCachedSamplers)
+		{
+
+		}
 
 		void init(refctd<nbl::video::ILogicalDevice>&& dev, refctd<nbl::video::IGPURenderpass>&& renderpass,
 			uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
@@ -302,6 +306,8 @@ namespace kris
 			return m_device->createShader(cpushader);
 		}
 
+		refctd<nbl::video::IGPUSampler> getSampler(const nbl::video::IGPUSampler::SParams& params);
+
 		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
 
 		CommandRecorder createCommandRecorder(Material::EPass pass)
@@ -461,5 +467,7 @@ namespace kris
 
 		refctd<BufferResource> m_defaultBuffer;
 		refctd<ImageResource> m_defaultImage;
+
+		nbl::core::LRUCache<uint64_t, refctd<nbl::video::IGPUSampler>> m_samplerCache;
 	};
 }

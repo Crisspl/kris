@@ -90,7 +90,7 @@ namespace kris
         return nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
     }
     
-    static void parseTextureBindingSlot(const char* str, Material::Binding& bnd)
+    static void parseTextureBindingSlot(Renderer* renderer, const char* str, Material::Binding& bnd)
     {
         const char* rmap = nullptr;
         const char* viewtype = nullptr;
@@ -191,6 +191,10 @@ namespace kris
         {
             bnd.info.image.layout = parseLayout(layout);
         }
+
+        static nbl::video::IGPUSampler::SParams DefaultSamplerParams;
+        DefaultSamplerParams.AnisotropicFilter = 0; // turn off aniso, the rest leave default
+        bnd.sampler = renderer->getSampler(DefaultSamplerParams);
     }
 
     static void parseBufferBindingSlot(const char* str, Material::Binding& bnd)
@@ -248,7 +252,7 @@ namespace kris
         }
     }
 
-    static uint32_t parseBindings(const char* const _str, Material::Binding bindings[Material::BindingSlotCount])
+    static uint32_t parseBindings(Renderer* renderer, const char* const _str, Material::Binding bindings[Material::BindingSlotCount])
     {
         std::string_view str(_str);
 
@@ -290,7 +294,7 @@ namespace kris
             auto& bnd = bindings[slot];
             if (Material::isTextureBindingSlot(slot))
             {
-                parseTextureBindingSlot(nextline(str.data()), bnd);
+                parseTextureBindingSlot(renderer, nextline(str.data()), bnd);
             }
             else
             {
@@ -442,7 +446,7 @@ namespace kris
 
         if (bindings)
         {
-            mtl->m_bndMask = parseBindings(bindings, mtl->m_bindings);
+            mtl->m_bndMask = parseBindings(renderer, bindings, mtl->m_bindings);
         }
 
         return mtl;
