@@ -272,7 +272,7 @@ constexpr uint32_t WorkgroupSize = 256;
 constexpr uint32_t WorkgroupCount = 2048;
 
 // this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
-class HelloComputeApp final : public examples::SimpleWindowedApplication
+class KrisTestApp final : public examples::SimpleWindowedApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
 	using clock_t = std::chrono::steady_clock;
@@ -280,7 +280,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 	constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
 
 	public:
-		inline HelloComputeApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+		inline KrisTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
 		}
 
@@ -304,7 +304,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					params.x = 32;
 					params.y = 32;
 					params.flags = ui::IWindow::ECF_HIDDEN | nbl::ui::IWindow::ECF_BORDERLESS | nbl::ui::IWindow::ECF_RESIZABLE;
-					params.windowCaption = "GeometryCreatorApp";
+					params.windowCaption = "KRIS-TestApp";
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
@@ -319,7 +319,6 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			return {};
 		}
 
-		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -381,31 +380,27 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			m_surface->recreateSwapchain();
 
 			m_assetMgr = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(kris::refctd(m_system));
-			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-			IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
-			auto imageBundle = m_assetMgr->getAsset((localInputCWD / "images/tex.dds").string(), loadParams);
-			auto imageContents = imageBundle.getContents();
-			KRIS_ASSERT(!imageContents.empty());
-			auto cpuimgview = nbl::core::smart_refctd_ptr_static_cast<nbl::asset::ICPUImageView>( *imageContents.begin() );
-			auto& cpuimg = cpuimgview->getCreationParameters().image;
 
-			nbl::video::IGPUImage::SCreationParams params;
-			static_cast<nbl::asset::IImage::SCreationParams&>(params) = cpuimg->getCreationParameters();
-
-			//m_device->createImage()
-			auto gpuimg = m_ResourceAlctr.allocImage(m_device.get(), std::move(params), m_physicalDevice->getDeviceLocalMemoryTypeBits());
-
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass), 
-				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
-
-#define RMAP_OUTPUT_BUF kris::FirstUsableResourceMapSlot
-			static_assert(RMAP_OUTPUT_BUF >= kris::FirstUsableResourceMapSlot);
-
-			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
-			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
-			//smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
-				
 			// Allocate the memory
+			// allocate image (texture for cube mesh)
+			kris::refctd<kris::ImageResource> imageResource;
+			kris::refctd<nbl::asset::ICPUImage> cpuimg;
+			{
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+				auto imageBundle = m_assetMgr->getAsset((localInputCWD / "images/tex.dds").string(), loadParams);
+				auto imageContents = imageBundle.getContents();
+				KRIS_ASSERT(!imageContents.empty());
+				auto cpuimgview = nbl::core::smart_refctd_ptr_static_cast<nbl::asset::ICPUImageView>(*imageContents.begin());
+
+				cpuimg = cpuimgview->getCreationParameters().image;
+
+				nbl::video::IGPUImage::SCreationParams params;
+				static_cast<nbl::asset::IImage::SCreationParams&>(params) = cpuimg->getCreationParameters();
+
+				imageResource = m_ResourceAlctr.allocImage(m_device.get(), std::move(params), m_physicalDevice->getDeviceLocalMemoryTypeBits());
+			}
+			// allocate buffer (output for compute shader)
 			{
 				constexpr size_t BufferSize = sizeof(uint32_t)*WorkgroupSize*WorkgroupCount;
 
@@ -417,18 +412,19 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
 				m_buffAllocation = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(params), m_physicalDevice->getHostVisibleMemoryTypeBits());
-				smart_refctd_ptr<IGPUBuffer> outputBuff = kris::refctd<nbl::video::IGPUBuffer>(m_buffAllocation->getBuffer());
-				if (!outputBuff)
+				if (!m_buffAllocation)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
 				// Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
-				outputBuff->setObjectDebugName("My Output Buffer");
+				m_buffAllocation->getBuffer()->setObjectDebugName("My Output Buffer");
 			}
 
-			//auto renderpass = m_Renderer.createRenderpass(m_device.get(), nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_D32_SFLOAT);
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass),
+				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 
 			kris::MaterialBuilder mtlbuilder(m_system.get()); 
 			
+			// Upload all the data to GPU and create materials
 			{
 				m_cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
@@ -461,7 +457,7 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 				// image upload
 				{
-					utils.uploadImageData(gpuimg.get(), cpuimg.get());
+					utils.uploadImageData(imageResource.get(), cpuimg.get());
 				}
 
 				//m_api->startCapture();
@@ -470,9 +466,6 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 				utils.blockForSubmit();
 
 				{
-					// set rmap
-					m_Renderer.resourceMap[3] = gpuimg.get();
-
 					m_mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
 					m_mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
 					m_mesh->m_vtxBuf = std::move(vtxbuf);
@@ -480,22 +473,16 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 					m_mesh->m_idxCount = m_cubedata.indexCount;
 					m_mesh->m_idxtype = m_cubedata.indexType;
 					m_mesh->m_vtxinput = m_cubedata.inputParams;
+					m_mesh->m_resources[0] = { .rmapIx = 3, .res = imageResource };
+				}
+
+				{
+					// set rmap
+					m_Renderer.resourceMap[2] = m_buffAllocation.get();
+
+					m_mtl = mtlbuilder.buildComputeMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/hellocompute.mat");
 				}
 			}
-
-
-			{
-				// set rmap
-				m_Renderer.resourceMap[RMAP_OUTPUT_BUF] = m_buffAllocation.get();
-
-				m_mtl = mtlbuilder.buildComputeMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/hellocompute.mat");
-			}
-
-
-			// There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
-			// The tracking causes circular references from the resource back to the m_device, so unless we poll at the end of the application, they resources used by last submit will leak.
-			// We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
-			//m_device->waitIdle();
 
 			// camera
 			{
@@ -533,8 +520,6 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 			if (!m_currentImageAcquire)
 				return;
 
-
-
 			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
 			{
 				logFail("Failed to map the Device Memory!\n");
@@ -548,17 +533,12 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 
 			m_Renderer.beginFrame(&camera);
 
+			// Record all the commands to command buffer using CommandRecorder
 			{
 				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::Material::BasePass);
 
-				cmdrec.cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
-				//cmdrec.cmdbuf->bindComputePipeline(pipeline.get());
-				//cmdrec.cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
-				//cmdrec.bindDescriptorSet(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0U, &ds);
-				//cmdrec.cmdbuf->dispatch(WorkgroupCount, 1, 1);
 				cmdrec.setupMaterial(m_device.get(), m_mtl.get()); // first setup for dispatch (update desc set, memory barriers)
 				cmdrec.dispatch(m_device.get(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1); // do actual dispatch
-				cmdrec.cmdbuf->endDebugMarker();
 
 				asset::SViewport viewport;
 				{
@@ -681,4 +661,4 @@ class HelloComputeApp final : public examples::SimpleWindowedApplication
 };
 
 
-NBL_MAIN_FUNC(HelloComputeApp)
+NBL_MAIN_FUNC(KrisTestApp)
