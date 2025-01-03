@@ -1,4 +1,13 @@
 $bindings
+$$t0
+rmap=3
+view=2D
+aspect=COLOR
+mipoffset=0
+mipcount=FULL
+layeroffset=0
+layercount=FULL
+layout=RO_OPTIMAL
 
 $vertex
 //#pragma wave shader_stage(vertex)
@@ -31,6 +40,7 @@ struct PSInput
 	float4 position : SV_Position;
 	float4 color : COLOR0;
 	float3 normal : NORMAL;
+	float2 uv : TEXCOORD;
 };
 
 PSInput main(VSInput input)
@@ -43,6 +53,7 @@ PSInput main(VSInput input)
 #endif
     output.color = input.color;
 	output.normal = input.normal;
+	output.uv = input.uv;
     
     return output;
 }
@@ -55,11 +66,19 @@ struct PSInput
 	float4 position : SV_Position;
 	float4 color : COLOR0;
 	float3 normal : NORMAL;
+	float2 uv : TEXCOORD;
 };
+
+// Register for mySampler is autoassigned in DX;
+[[vk::combinedImageSampler]][[vk::binding(8,3)]]
+Texture2D<float4> myTexture;
+[[vk::combinedImageSampler]][[vk::binding(8,3)]]
+SamplerState mySampler;
 
 float4 main(PSInput input) : SV_TARGET
 {
 	//float3 n = normalize(input.normal);
 	//float3 l = normalize(float3(1,1,1));
-	return input.color;// * saturate(dot(n,l));
+	return myTexture.Sample(mySampler, input.uv);
+	//return input.color;// * saturate(dot(n,l));
 }

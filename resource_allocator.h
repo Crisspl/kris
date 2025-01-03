@@ -284,7 +284,12 @@ namespace kris
 
 			View* findView(View::id_t id)
 			{
-				return m_views.get(id)->get();
+				auto* found = m_views.get(id);
+				if (found)
+				{
+					found->get();
+				}
+				return nullptr;
 			}
 
 			void addView(View::id_t id, refctd<View>&& v)

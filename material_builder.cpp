@@ -163,13 +163,17 @@ namespace kris
         bnd.info.image.viewtype = nbl::video::IGPUImageView::ET_2D;
         bnd.info.image.layout = nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
 
+        if (rmap)
+        {
+            bnd.rmapIx = parseNumber(rmap);
+        }
         if (mipoffset)
         {
             bnd.info.image.mipOffset = parseNumber(mipoffset);
         }
         if (mipcount)
         {
-            bnd.info.image.mipCount = parseNumber(mipcount);
+            bnd.info.image.mipCount = parseSize(mipcount);
         }
         if (layeroffset)
         {
@@ -177,7 +181,7 @@ namespace kris
         }
         if (layercount)
         {
-            bnd.info.image.layerCount = parseNumber(layercount);
+            bnd.info.image.layerCount = parseSize(layercount);
         }
         if (aspect)
         {

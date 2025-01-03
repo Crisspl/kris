@@ -54,7 +54,7 @@ namespace kris
 		const uint64_t hash = getSamplerHash(params);
 		{
 			auto* found = m_samplerCache.get(hash);
-			if (!found)
+			if (found)
 			{
 				return found[0];
 			}
