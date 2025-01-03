@@ -1,6 +1,6 @@
 # kris
 
-This is a draft of a simple engine written, I wrote during xmas-NYE break in [Nabla](https://github.com/Devsh-Graphics-Programming/Nabla).
+This is a draft of a simple engine, I wrote during xmas-NYE break in [Nabla](https://github.com/Devsh-Graphics-Programming/Nabla).
 
 The app written in main.cpp is basically small test for the engine. All the other source files are engine code.
 
