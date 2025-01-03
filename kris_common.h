@@ -115,6 +115,7 @@ namespace kris
 
 	using half = uint16_t;
 
+	// credit: https://stackoverflow.com/questions/3026441/float32-to-float16
 	inline half f32tof16(float _f)
 	{
 		const uint32_t& fltInt32 = nbl::core::floatBitsToUint(_f);
@@ -128,7 +129,7 @@ namespace kris
 
 		return fltInt16;
 	}
-
+	// credit: https://gist.github.com/zhuker/b4bd1fb306c7b04975b712c37c4c4075
 	inline float f16tof32(const half in) 
 	{
 		uint32_t t1;
