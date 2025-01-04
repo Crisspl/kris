@@ -4,6 +4,7 @@
 #include "resource_allocator.h"
 #include "material.h"
 #include "mesh.h"
+#include "scene.h"
 
 namespace kris
 {
@@ -101,6 +102,9 @@ namespace kris
 
 			setMaterialCommon(device, layout, mtl);
 		}
+
+		void setupDrawSceneNode(nbl::video::ILogicalDevice* device, SceneNode* mesh);
+		void drawSceneNode(nbl::video::ILogicalDevice* device, Material::EPass pass, SceneNode* mesh);
 
 		void setupDrawMesh(nbl::video::ILogicalDevice* device, Mesh* mesh);
 		void drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh);

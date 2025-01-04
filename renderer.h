@@ -152,8 +152,8 @@ namespace kris
 					b.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
 					b.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 				}
-				m_meshDsl = m_device->createDescriptorSetLayout({ &b, 1 });
-				KRIS_ASSERT(m_meshDsl);
+				m_sceneNodeDsl = m_device->createDescriptorSetLayout({ &b, 1 });
+				KRIS_ASSERT(m_sceneNodeDsl);
 			}
 
 			// material ds layout
@@ -177,9 +177,10 @@ namespace kris
 			// material ppln layout
 			{
 				static_assert(CameraDescSetIndex == 1U, "If CameraDescSetIndex is not 1, this pipeline layout creation needs to be altered!");
+				static_assert(SceneNodeDescSetIndex == 2U, "If SceneNodeDescSetIndex is not 2, this pipeline layout creation needs to be altered!");
 				static_assert(MaterialDescSetIndex == 3U, "If MaterialDescSetIndex is not 3, this pipeline layout creation needs to be altered!");
 
-				m_mtlPplnLayout = m_device->createPipelineLayout({}, nullptr, refctd(m_camResources.camDsl), refctd(m_meshDsl), refctd(m_mtlDsl));
+				m_mtlPplnLayout = m_device->createPipelineLayout({}, nullptr, refctd(m_camResources.camDsl), refctd(m_sceneNodeDsl), refctd(m_mtlDsl));
 			}
 
 			//Default resources
@@ -317,26 +318,6 @@ namespace kris
 			return pipeline;
 		}
 
-		refctd<Mesh> createMesh(ResourceAllocator* ra)
-		{
-			auto mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
-			mesh->m_ds = MeshDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_meshDsl)));
-
-			nbl::video::IGPUBuffer::SCreationParams ci = {};
-			ci.usage = nbl::core::bitflag<nbl::asset::IBuffer::E_USAGE_FLAGS>(nbl::asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) |
-				nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT |
-				nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			ci.size = sizeof(Mesh::UBOData);
-			auto ubo = ra->allocBuffer(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
-
-			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet w;
-			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
-			mesh->m_ds.update(m_device.get(), &w, &info, 0U, ubo.get());
-			m_device->updateDescriptorSets({ &w, 1 }, {});
-
-			return mesh;
-		}
-
 		refctd<nbl::video::IGPUShader> createShader(const nbl::asset::ICPUShader* cpushader)
 		{
 			return m_device->createShader(cpushader);
@@ -351,6 +332,11 @@ namespace kris
 			refctd<nbl::video::IGPUCommandBuffer>& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][pass];
 			
 			return CommandRecorder(getCurrentFrameIx(), pass, std::move(cmdbuf));
+		}
+
+		SceneNodeDescriptorSet createSceneNodeDescriptorSet()
+		{
+			return SceneNodeDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_sceneNodeDsl)));
 		}
 
 		void consumeAsPass(Material::EPass pass, CommandRecorder&& cmdrec)
@@ -498,7 +484,7 @@ namespace kris
 			refctd<nbl::video::IGPUDescriptorSet> camDs;
 		} m_camResources;
 
-		refctd<nbl::video::IGPUDescriptorSetLayout> m_meshDsl;
+		refctd<nbl::video::IGPUDescriptorSetLayout> m_sceneNodeDsl;
 
 		refctd<nbl::video::IGPUDescriptorSetLayout> m_mtlDsl;
 		refctd<nbl::video::IGPUPipelineLayout> m_mtlPplnLayout;

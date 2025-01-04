@@ -28,6 +28,7 @@ using namespace video;
 #include "material.h"
 #include "material_builder.h"
 #include "mesh.h"
+#include "scene.h"
 #include "resource_utils.h"
 
 struct GeometryCreator
@@ -421,6 +422,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass),
 				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
+			m_Scene.init(&m_Renderer);
 
 			kris::MaterialBuilder mtlbuilder(m_system.get()); 
 			
@@ -466,16 +468,18 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				utils.blockForSubmit();
 
 				{
-					m_mesh = m_Renderer.createMesh(&m_ResourceAlctr);//nbl::core::make_smart_refctd_ptr<kris::Mesh>();
-					m_mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
-					m_mesh->m_vtxBuf = std::move(vtxbuf);
-					m_mesh->m_idxBuf = std::move(idxbuf);
-					m_mesh->m_idxCount = m_cubedata.indexCount;
-					m_mesh->m_idxtype = m_cubedata.indexType;
-					m_mesh->m_vtxinput = m_cubedata.inputParams;
-					m_mesh->m_resources[0] = { .rmapIx = 3, .res = imageResource };
+					m_scenenode = m_Scene.createMeshSceneNode(m_device.get(), &m_ResourceAlctr);
+					auto& mesh = m_scenenode->m_mesh;
+					mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
+					mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
+					mesh->m_vtxBuf = std::move(vtxbuf);
+					mesh->m_idxBuf = std::move(idxbuf);
+					mesh->m_idxCount = m_cubedata.indexCount;
+					mesh->m_idxtype = m_cubedata.indexType;
+					mesh->m_vtxinput = m_cubedata.inputParams;
+					mesh->m_resources[0] = { .rmapIx = 3, .res = imageResource };
 
-					m_mesh->getTransform().setTranslation(nbl::core::vectorSIMDf(6.f, 0.f, 0.f, 0.f));
+					m_scenenode->getTransform().setTranslation(nbl::core::vectorSIMDf(6.f, 0.f, 0.f, 0.f));
 				}
 
 				{
@@ -539,10 +543,10 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			// Update transforms
 			{
-				m_mesh->getTransform().setRotation(nbl::core::quaternion((float)std::sin(workloopTime), 0.f, 0.f));
+				m_scenenode->getTransform().setRotation(nbl::core::quaternion((float)std::sin(workloopTime), 0.f, 0.f));
 
 				const float Radius = 2.f;
-				m_mesh->getTransform().setTranslation(
+				m_scenenode->getTransform().setTranslation(
 					nbl::core::vectorSIMDf(Radius * (float)std::sin(workloopTime), Radius * (float)std::cos(workloopTime), 0.f, 0.f)
 				);
 			}
@@ -576,7 +580,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 				// setup draws (update desc sets, memory barriers)
 				{
-					cmdrec.setupDrawMesh(m_device.get(), m_mesh.get());
+					cmdrec.setupDrawSceneNode(m_device.get(), m_scenenode.get());
 				}
 
 				// do draws within renderpass 
@@ -602,7 +606,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 						cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 					}
 
-					cmdrec.drawMesh(m_device.get(), kris::Material::BasePass, m_mesh.get());
+					cmdrec.drawSceneNode(m_device.get(), kris::Material::BasePass, m_scenenode.get());
 
 					cmdrec.cmdbuf->endRenderPass();
 				}
@@ -670,7 +674,8 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;
 
-		kris::refctd<kris::Mesh> m_mesh;
+		kris::Scene m_Scene;
+		kris::refctd<kris::SceneNode> m_scenenode;
 
 		kris::refctd<kris::BufferResource> m_buffAllocation;
 		kris::refctd<kris::ComputeMaterial> m_mtl;
