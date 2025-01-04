@@ -3,6 +3,7 @@
 #include "kris_common.h"
 #include "cmd_recorder.h"
 #include "material.h"
+#include "mesh.h"
 #include "resource_allocator.h"
 #include "CCamera.hpp"
 
@@ -140,6 +141,21 @@ namespace kris
 				m_device->updateDescriptorSets({ &w, 1 }, {});
 			}
 
+			// mesh ds layout
+			{
+				nbl::video::IGPUDescriptorSetLayout::SBinding b;
+				{
+					b.binding = 0;
+					b.count = 1;
+					b.immutableSamplers = nullptr;
+					b.stageFlags = nbl::hlsl::ESS_VERTEX;
+					b.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
+					b.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+				}
+				m_meshDsl = m_device->createDescriptorSetLayout({ &b, 1 });
+				KRIS_ASSERT(m_meshDsl);
+			}
+
 			// material ds layout
 			{
 				nbl::video::IGPUDescriptorSetLayout::SBinding bindings[Material::BindingSlot::BindingSlotCount];
@@ -163,7 +179,7 @@ namespace kris
 				static_assert(CameraDescSetIndex == 1U, "If CameraDescSetIndex is not 1, this pipeline layout creation needs to be altered!");
 				static_assert(MaterialDescSetIndex == 3U, "If MaterialDescSetIndex is not 3, this pipeline layout creation needs to be altered!");
 
-				m_mtlPplnLayout = m_device->createPipelineLayout({}, nullptr, refctd(m_camResources.camDsl), nullptr, refctd(m_mtlDsl));
+				m_mtlPplnLayout = m_device->createPipelineLayout({}, nullptr, refctd(m_camResources.camDsl), refctd(m_meshDsl), refctd(m_mtlDsl));
 			}
 
 			//Default resources
@@ -197,15 +213,15 @@ namespace kris
 			}
 		}
 
-		DescriptorSet createDescriptorSetForMaterial()
+		MaterialDescriptorSet createDescriptorSetForMaterial()
 		{
 			// TODO why do we actually have 3 desc pools? Read about desc pools management
 			auto* dsl = getMtlDsl();
 			auto nabla_ds = m_descPool[getCurrentFrameIx()]->createDescriptorSet(refctd<nbl::video::IGPUDescriptorSetLayout>(dsl));
 			KRIS_ASSERT(nabla_ds);
-			auto ds = DescriptorSet(std::move(nabla_ds));
+			auto ds = MaterialDescriptorSet(std::move(nabla_ds));
 
-			for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
+			for (uint32_t b = 0U; b < MaterialDescriptorSet::MaxBindings; ++b)
 			{
 				ds.m_resources[b] = Material::isTextureBindingSlot((Material::BindingSlot)b) ? 
 					refctd<Resource>(getDefaultImageResource()) : 
@@ -222,7 +238,7 @@ namespace kris
 			mtl->m_creatorRenderer = this;
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
-				kris::DescriptorSet ds = createDescriptorSetForMaterial();
+				kris::MaterialDescriptorSet ds = createDescriptorSetForMaterial();
 				mtl->m_ds3[i] = std::move(ds);
 			}
 
@@ -299,6 +315,26 @@ namespace kris
 			KRIS_ASSERT(result);
 
 			return pipeline;
+		}
+
+		refctd<Mesh> createMesh(ResourceAllocator* ra)
+		{
+			auto mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
+			mesh->m_ds = MeshDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_meshDsl)));
+
+			nbl::video::IGPUBuffer::SCreationParams ci = {};
+			ci.usage = nbl::core::bitflag<nbl::asset::IBuffer::E_USAGE_FLAGS>(nbl::asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) |
+				nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT |
+				nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			ci.size = sizeof(Mesh::UBOData);
+			auto ubo = ra->allocBuffer(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
+
+			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet w;
+			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+			mesh->m_ds.update(m_device.get(), &w, &info, 0U, ubo.get());
+			m_device->updateDescriptorSets({ &w, 1 }, {});
+
+			return mesh;
 		}
 
 		refctd<nbl::video::IGPUShader> createShader(const nbl::asset::ICPUShader* cpushader)
@@ -461,6 +497,8 @@ namespace kris
 			refctd<nbl::video::IGPUDescriptorSetLayout> camDsl;
 			refctd<nbl::video::IGPUDescriptorSet> camDs;
 		} m_camResources;
+
+		refctd<nbl::video::IGPUDescriptorSetLayout> m_meshDsl;
 
 		refctd<nbl::video::IGPUDescriptorSetLayout> m_mtlDsl;
 		refctd<nbl::video::IGPUPipelineLayout> m_mtlPplnLayout;

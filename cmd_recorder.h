@@ -138,11 +138,14 @@ namespace kris
 			const DescriptorSet* ds)
 		{
 			cmdbuf->bindDescriptorSets(q, layout, dsIx, 1U, &ds->m_ds.get());
-			for (uint32_t i = 0U; i < DescriptorSet::MaxBindings; ++i)
+
+			const auto rsrcRange = ds->getResources();
+
+			for (uint32_t i = 0U; i < (uint32_t) rsrcRange.size(); ++i)
 			{
 				if (bndmask & (1U << i))
 				{
-					auto& res = ds->m_resources[i];
+					auto& res = rsrcRange.begin()[i];
 					KRIS_ASSERT(res);
 					m_resources.addResource(refctd(res));
 				}

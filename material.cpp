@@ -79,15 +79,15 @@ namespace kris
 		auto& ds = m_ds3[frameIx];
 		ResourceMap* rmap = &m_creatorRenderer->resourceMap;
 
-		nbl::video::IGPUDescriptorSet::SWriteDescriptorSet writes[DescriptorSet::MaxBindings];
-		nbl::video::IGPUDescriptorSet::SDescriptorInfo infos[DescriptorSet::MaxBindings];
+		nbl::video::IGPUDescriptorSet::SWriteDescriptorSet writes[MaterialDescriptorSet::MaxBindings];
+		nbl::video::IGPUDescriptorSet::SDescriptorInfo infos[MaterialDescriptorSet::MaxBindings];
 		uint32_t updated = 0U;
 
 		BarrierCounts barrierCounts;
 
 		const auto dstStages = this->getMtlShadersPipelineStageFlags();
 
-		for (uint32_t b = 0U; b < DescriptorSet::MaxBindings; ++b)
+		for (uint32_t b = 0U; b < MaterialDescriptorSet::MaxBindings; ++b)
 		{
 			if ((m_bndMask & (1U << b)) == 0U)
 				continue;

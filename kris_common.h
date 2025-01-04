@@ -62,6 +62,7 @@ namespace kris
 		LayerCount_FullRange = 0U,
 
 		CameraDescSetIndex = 1U,
+		MeshDescSetIndex = 2U,
 		MaterialDescSetIndex = 3U
 	};
 

@@ -30,18 +30,66 @@ namespace kris
 	class DescriptorSet : public nbl::core::Uncopyable
 	{
 	public:
-		enum : uint32_t
-		{
-			MaxBindings = 16U
-		};
-
-		refctd<nbl::video::IGPUDescriptorSet> m_ds;
-		refctd<Resource> m_resources[MaxBindings];
+		virtual ~DescriptorSet() = default;
 
 		DescriptorSet() : m_ds(nullptr) {}
+		DescriptorSet(DescriptorSet&& rhs) : m_ds(std::move(rhs.m_ds)) {}
 		explicit DescriptorSet(refctd<nbl::video::IGPUDescriptorSet>&& ds) : m_ds(std::move(ds))
 		{
 			// Note: renderer fills all m_resources with defaults in createDescriptoSet
+			KRIS_ASSERT(m_ds);
+		}
+
+		DescriptorSet& operator=(DescriptorSet& rhs)
+		{
+			m_ds = std::move(rhs.m_ds);
+			return *this;
+		}
+
+		refctd<nbl::video::IGPUDescriptorSet> m_ds;
+
+		virtual nbl::core::SRange<const refctd<Resource>> getResources() const = 0;
+	};
+
+	template <uint32_t _MaxBindings>
+	class DescriptorSetTemplate final : public DescriptorSet
+	{
+	public:
+		enum : uint32_t
+		{
+			MaxBindings = _MaxBindings,
+			FullBndMask = (1U << MaxBindings) - 1U,
+		};
+
+		refctd<Resource> m_resources[MaxBindings];
+
+		DescriptorSetTemplate() = default;
+		explicit DescriptorSetTemplate(refctd<nbl::video::IGPUDescriptorSet>&& ds) : DescriptorSet(std::move(ds))
+		{
+			// Note: renderer fills all m_resources with defaults in createDescriptoSet
+		}
+		DescriptorSetTemplate(DescriptorSetTemplate&& rhs) : DescriptorSet(static_cast<DescriptorSet&&>(std::move(*this)))
+		{
+			for (uint32_t i = 0U; i < MaxBindings; ++i)
+			{
+				m_resources[i] = std::move(rhs.m_resources[i]);
+			}
+		}
+		virtual ~DescriptorSetTemplate() = default;
+
+		DescriptorSetTemplate& operator=(DescriptorSetTemplate&& rhs)
+		{
+			static_cast<DescriptorSet&>(*this) = rhs;
+			for (uint32_t i = 0U; i < MaxBindings; ++i)
+			{
+				m_resources[i] = std::move(rhs.m_resources[i]);
+			}
+			return *this;
+		}
+
+		nbl::core::SRange<const refctd<Resource>> getResources() const override
+		{
+			return nbl::core::SRange<const refctd<Resource>>(m_resources, m_resources + MaxBindings);
 		}
 
 		void update(nbl::video::ILogicalDevice* device,
@@ -101,6 +149,8 @@ namespace kris
 		}
 	};
 
+	using MaterialDescriptorSet = DescriptorSetTemplate<16U>;
+
 	class Material : public nbl::core::IReferenceCounted
 	{
 	public:
@@ -148,7 +198,7 @@ namespace kris
 		};
 #define kris_bnd(bnd)		kris::Material::BindingSlot::bnd
 #define kris_bndbit(bnd)	(1U << kris::Material::BindingSlot::bnd)
-		static_assert(BindingSlotCount == DescriptorSet::MaxBindings);
+		static_assert(BindingSlotCount == MaterialDescriptorSet::MaxBindings);
 
 		static bool isTextureBindingSlot(BindingSlot slot)
 		{
@@ -191,7 +241,7 @@ namespace kris
 
 		explicit Material(uint32_t passmask, uint32_t bndmask) : m_passMask(passmask), m_bndMask(bndmask)
 		{
-			for (uint32_t i = 0U; i < DescriptorSet::MaxBindings; ++i)
+			for (uint32_t i = 0U; i < MaterialDescriptorSet::MaxBindings; ++i)
 			{
 				m_bindings[i].rmapIx = isTextureBindingSlot((BindingSlot)i) ? DefaultImageResourceMapSlot : DefaultBufferResourceMapSlot;
 				if (!isTextureBindingSlot((BindingSlot)i))
@@ -232,7 +282,7 @@ namespace kris
 		virtual nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> getMtlShadersPipelineStageFlags() const = 0;
 
 		Renderer* m_creatorRenderer;
-		DescriptorSet m_ds3[FramesInFlight];
+		MaterialDescriptorSet m_ds3[FramesInFlight];
 
 		struct Binding
 		{
@@ -265,7 +315,7 @@ namespace kris
 				} image;
 			} info;
 		};
-		Binding m_bindings[DescriptorSet::MaxBindings];
+		Binding m_bindings[MaterialDescriptorSet::MaxBindings];
 		uint32_t m_passMask;
 		uint32_t m_bndMask;
 		// TODO: push constants?

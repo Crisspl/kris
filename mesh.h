@@ -4,9 +4,26 @@
 
 namespace kris
 {
+    using MeshDescriptorSet = DescriptorSetTemplate<1U>;
+
     class Mesh : public nbl::core::IReferenceCounted
     {
     public:
+        using transform_t = nbl::core::matrix3x4SIMD;
+
+        enum : uint32_t
+        {
+            DescSetBndMask = MeshDescriptorSet::FullBndMask,
+        };
+
+        struct UBOData
+        {
+            transform_t worldMatrix;
+        };
+
+        MeshDescriptorSet m_ds;
+        UBOData m_data;
+
         nbl::asset::SVertexInputParams m_vtxinput;
         uint32_t m_idxCount;
         nbl::asset::E_INDEX_TYPE m_idxtype;
@@ -25,6 +42,16 @@ namespace kris
         uint32_t getPassMask()
         {
             return m_mtl ? m_mtl->m_passMask : 0U;
+        }
+
+        nbl::video::IGPUGraphicsPipeline* getPipeline(Material::EPass pass)
+        {
+            return m_mtl->getGfxPipeline(pass, m_vtxinput);
+        }
+
+        transform_t& getTransform()
+        {
+            return m_data.worldMatrix;
         }
 
         void updateResourceMap(ResourceMap* rmap)

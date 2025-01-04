@@ -22,6 +22,16 @@ namespace kris
 
 		setupMaterial(device, mesh->m_mtl.get());
 
+		{
+			auto* ubo = static_cast<BufferResource*>(mesh->m_ds.m_resources[0].get())->getBuffer();
+
+			nbl::asset::SBufferRange<nbl::video::IGPUBuffer> rng;
+			rng.buffer = refctd<nbl::video::IGPUBuffer>(ubo);
+			rng.offset = 0;
+			rng.size = rng.buffer->getSize();
+			cmdbuf->updateBuffer(rng, &mesh->m_data);
+		}
+
 		emitBarrierCmd();
 	}
 
@@ -45,6 +55,9 @@ namespace kris
 		}
 
 		setGfxMaterial(device, pass, mesh->m_vtxinput, mesh->m_mtl.get());
+
+		// bind mesh ds
+		bindDescriptorSet(nbl::asset::EPBP_GRAPHICS, mesh->getPipeline(pass)->getLayout(), MeshDescSetIndex, Mesh::DescSetBndMask, &mesh->m_ds);
 
 		cmdbuf->drawIndexed(mesh->m_idxCount, 1, 0, 0, 0);
 	}

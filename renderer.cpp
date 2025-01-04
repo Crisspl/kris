@@ -116,15 +116,15 @@ namespace kris
 				.srcSubpass = nbl::video::IGPURenderpass::SCreationParams::SSubpassDependency::External,
 				.dstSubpass = 0,
 				.memoryBarrier = {
-				// last place where the depth can get modified in previous frame
-				.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-				// only write ops, reads can't be made available
-				.srcAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-				// destination needs to wait as early as possible
-				.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-				// because of depth test needing a read and a write
-				.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
-			}
+					// last place where the depth can get modified in previous frame
+					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					// destination needs to wait as early as possible
+					.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+					// because of depth test needing a read and a write
+					.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+				}
 			// leave view offsets and flags default
 			},
 			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
@@ -132,12 +132,12 @@ namespace kris
 				.srcSubpass = 0,
 				.dstSubpass = nbl::video::IGPURenderpass::SCreationParams::SSubpassDependency::External,
 				.memoryBarrier = {
-				// last place where the depth can get modified
-				.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-				// only write ops, reads can't be made available
-				.srcAccessMask = nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				// spec says nothing is needed when presentation is the destination
-			}
+					// last place where the depth can get modified
+					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					// spec says nothing is needed when presentation is the destination
+				}
 			// leave view offsets and flags default
 			},
 			nbl::video::IGPURenderpass::SCreationParams::DependenciesEnd

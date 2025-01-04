@@ -18,6 +18,11 @@ struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
 	float3x3 normalMat;
 };
 
+struct SMeshTransform
+{
+	float3x4 worldMatrix;
+};
+
 #if 1
 // set 1, binding 0
 [[vk::binding(0, 1)]]
@@ -26,6 +31,12 @@ cbuffer CameraData
     SBasicViewParameters params;
 };
 #endif
+
+[[vk::binding(0, 2)]]
+cbuffer MeshData
+{
+    SMeshTransform tform;
+};
 
 struct VSInput
 {
@@ -47,7 +58,8 @@ PSInput main(VSInput input)
 {
     PSInput output;
 #if 1
-    output.position = mul(params.MVP, float4(input.position, 1.0));
+	float3 worldPos = mul(tform.worldMatrix, float4(input.position, 1.0));
+    output.position = mul(params.MVP, float4(worldPos, 1.0));
 #else
 	output.position = float4(input.position, 1.0f);
 #endif
