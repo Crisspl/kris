@@ -20,6 +20,9 @@ namespace kris
 		}
 
 		setupDrawMesh(device, node->m_mesh.get());
+
+		for (auto& child : node->m_children)
+			setupDrawSceneNode(device, child.get());
 	}
 
 	void CommandRecorder::drawSceneNode(nbl::video::ILogicalDevice* device, Material::EPass pass, SceneNode* node)
@@ -30,6 +33,9 @@ namespace kris
 		bindDescriptorSet(nbl::asset::EPBP_GRAPHICS, mesh->getPipeline(pass)->getLayout(), SceneNodeDescSetIndex, SceneNode::DescSetBndMask, &node->m_ds);
 
 		drawMesh(device, pass, mesh);
+
+		for (auto& child : node->m_children)
+			drawSceneNode(device, pass, child.get());
 	}
 
 	void CommandRecorder::setupDrawMesh(nbl::video::ILogicalDevice* device, Mesh* mesh)

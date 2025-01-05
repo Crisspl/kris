@@ -3,10 +3,10 @@
 
 namespace kris
 {
-    refctd<SceneNode> Scene::createMeshSceneNode(nbl::video::ILogicalDevice* device, ResourceAllocator* ra)
+    refctd<SceneNode> Scene::createMeshSceneNode(nbl::video::ILogicalDevice* device, ResourceAllocator* ra, Mesh* mesh)
     {
         auto node = nbl::core::make_smart_refctd_ptr<SceneNode>();
-        node->m_mesh = nbl::core::make_smart_refctd_ptr<Mesh>();
+        node->m_mesh = refctd<Mesh>(mesh);
         node->m_ds = m_renderer->createSceneNodeDescriptorSet();
 
         nbl::video::IGPUBuffer::SCreationParams ci = {};

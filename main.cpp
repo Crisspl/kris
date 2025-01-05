@@ -468,9 +468,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				utils.blockForSubmit();
 
 				{
-					m_scenenode = m_Scene.createMeshSceneNode(m_device.get(), &m_ResourceAlctr);
-					auto& mesh = m_scenenode->m_mesh;
-					mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
+					auto mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
 					mesh->m_mtl = mtlbuilder.buildGfxMaterial(&m_Renderer, m_logger.get(), localInputCWD / "materials/cube.mat");
 					mesh->m_vtxBuf = std::move(vtxbuf);
 					mesh->m_idxBuf = std::move(idxbuf);
@@ -479,7 +477,12 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 					mesh->m_vtxinput = m_cubedata.inputParams;
 					mesh->m_resources[0] = { .rmapIx = 3, .res = imageResource };
 
-					m_scenenode->getTransform().setTranslation(nbl::core::vectorSIMDf(6.f, 0.f, 0.f, 0.f));
+					m_scenenode = m_Scene.createMeshSceneNode(m_device.get(), &m_ResourceAlctr, mesh.get());
+
+					m_childnode = m_Scene.createMeshSceneNode(m_device.get(), &m_ResourceAlctr, mesh.get());
+					m_childnode->getLocalTransform().setTranslation(nbl::core::vectorSIMDf(1.2f, 0.f, 0.f, 0.f));
+
+					m_scenenode->addChild(kris::refctd(m_childnode));
 				}
 
 				{
@@ -530,12 +533,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			if (!m_currentImageAcquire)
 				return;
 
-			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
-			{
-				logFail("Failed to map the Device Memory!\n");
-				return;
-			}
-
 			camera.beginInputProcessing(nextPresentationTimestamp);
 			mouse.consumeEvents([&](const nbl::ui::IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
 			keyboard.consumeEvents([&](const nbl::ui::IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
@@ -543,12 +540,22 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			// Update transforms
 			{
-				m_scenenode->getTransform().setRotation(nbl::core::quaternion((float)std::sin(workloopTime), 0.f, 0.f));
+				{
+					const float SpeedFactor = 1.f;
+					const float Radius = 3.f;
+					m_scenenode->getLocalTransform().setTranslation(
+						nbl::core::vectorSIMDf(Radius * (float)std::sin(SpeedFactor*workloopTime), 0.f, Radius * (float)std::cos(SpeedFactor*workloopTime), 0.f)
+					);
+				}
+				{
+					const float SpeedFactor = 1.5f;
+					const float Radius = 1.4f;
+					m_childnode->getLocalTransform().setTranslation(
+						nbl::core::vectorSIMDf(Radius * (float)std::sin(SpeedFactor*workloopTime), 0.f, Radius * (float)std::cos(SpeedFactor*workloopTime), 0.f)
+					);
+				}
 
-				const float Radius = 2.f;
-				m_scenenode->getTransform().setTranslation(
-					nbl::core::vectorSIMDf(Radius * (float)std::sin(workloopTime), Radius * (float)std::cos(workloopTime), 0.f, 0.f)
-				);
+				m_scenenode->updateTransformTree();
 			}
 
 			m_Renderer.beginFrame(&camera);
@@ -623,6 +630,13 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			m_Renderer.endFrame();
 
+#define CHECK_COMPUTE_RESULT 0
+#if CHECK_COMPUTE_RESULT
+			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
+			{
+				logFail("Failed to map the Device Memory!\n");
+				return;
+			}
 			m_buffAllocation->invalidate(m_device.get());
 			auto buffData = reinterpret_cast<const uint32_t*>(m_buffAllocation->getMappedPtr());
 
@@ -636,6 +650,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			}
 
 			m_buffAllocation->unmap();
+#endif
 
 			m_surface->present(m_currentImageAcquire.imageIndex, { &rendered, 1U });
 		}
@@ -676,6 +691,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 		kris::Scene m_Scene;
 		kris::refctd<kris::SceneNode> m_scenenode;
+		kris::refctd<kris::SceneNode> m_childnode;
 
 		kris::refctd<kris::BufferResource> m_buffAllocation;
 		kris::refctd<kris::ComputeMaterial> m_mtl;
