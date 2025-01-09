@@ -469,7 +469,7 @@ namespace kris
 			const size_t size = params.size;
 			refctd<nbl::video::IGPUBuffer> buf = device->createBuffer(std::move(params));
 
-			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = device->getMemoryRequirementsForBuffer(buf.get());
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = buf->getMemoryReqs();
 			req.memoryTypeBits &= memTypeBitsConstraints;
 
 			const uint32_t memTypeIndex = nbl::hlsl::findLSB(req.memoryTypeBits);
@@ -487,10 +487,11 @@ namespace kris
 		refctd<ImageAllocation> allocImage(nbl::video::ILogicalDevice* device, nbl::video::IGPUImage::SCreationParams&& params, uint32_t memTypeBitsConstraints)
 		{
 			refctd<nbl::video::IGPUImage> img = device->createImage(std::move(params));
-			const size_t size = img->getMemoryReqs().size;
 
-			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = device->getMemoryRequirementsForImage(img.get());
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = img->getMemoryReqs();
 			req.memoryTypeBits &= memTypeBitsConstraints;
+
+			const size_t size = img->getMemoryReqs().size;
 
 			const uint32_t memTypeIndex = nbl::hlsl::findLSB(req.memoryTypeBits);
 			MemHeap::Allocation al = m_heaps[memTypeIndex].allocate(device, size, 1U << req.alignmentLog2, false);

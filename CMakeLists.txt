@@ -13,6 +13,7 @@ set(KRIS_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/material_builder.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/scene.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/passes/base_pass.cpp"
 )
 set(KRIS_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/kris_common.h"
@@ -24,6 +25,8 @@ set(KRIS_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/material_builder.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/mesh.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/scene.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/passes/pass_common.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/passes/base_pass.h"
 )
 
 nbl_create_executable_project("${KRIS_SOURCES}" "" "${KRIS_INCLUDES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

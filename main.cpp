@@ -368,6 +368,8 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			// TODO: promote the depth format if D16 not supported, or quote the spec if there's guaranteed support for it
 			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
 
+			//m_renderpass = kris::Renderer::createRenderpass(m_device.get(), swapchainParams.surfaceFormat.format, EF_D16_UNORM);
+			//auto* renderpass = m_renderpass.get();
 			auto* renderpass = scResources->getRenderpass();
 
 			if (!renderpass)
@@ -626,11 +628,14 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT) | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS);
 			//m_api->endCapture();
 
+#define CHECK_COMPUTE_RESULT 0
+
+#if CHECK_COMPUTE_RESULT
 			m_Renderer.blockForCurrentFrame(); // wait to read CS result on CPU
+#endif 
 
 			m_Renderer.endFrame();
 
-#define CHECK_COMPUTE_RESULT 0
 #if CHECK_COMPUTE_RESULT
 			if (!m_buffAllocation->map(IDeviceMemoryAllocation::EMCAF_READ))
 			{
@@ -685,6 +690,8 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 		kris::refctd<nbl::asset::IAssetManager> m_assetMgr;
 
 		GeometryCreator::return_type m_cubedata;
+
+		//kris::refctd<nbl::video::IGPURenderpass> m_renderpass;
 
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;

@@ -7,6 +7,9 @@
 #include "resource_allocator.h"
 #include "CCamera.hpp"
 
+#include "passes/pass_common.h"
+#include "passes/base_pass.h"
+
 namespace kris
 {
 
@@ -30,7 +33,7 @@ namespace kris
 			MaxAccStructs = 0U,
 
 			// Other limits
-			MaxCachedSamplers = 50U,
+			MaxCachedSamplers = MaxSamplers,
 			
 		};
 		enum : uint64_t
@@ -64,18 +67,19 @@ namespace kris
 			uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
 		{
 			m_device = std::move(dev);
-			m_renderpass = std::move(renderpass);
+			m_renderpasses[Material::BasePass] = std::move(renderpass);
 			m_fence = m_device->createSemaphore(FenceInitialVal);
 			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
+			// cmd pool
+			m_cmdPool = m_device->createCommandPool(qFamIx,
+				nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT) |
+				nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
-				// cmd pool
+				// cmd buffers
 				{
-					m_cmdPool[i] = m_device->createCommandPool(qFamIx, 
-						nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT) | nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-
-					m_cmdPool[i]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],Material::NumPasses });
+					m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],Material::NumPasses });
 				}
 				// desc pool
 				{
@@ -259,46 +263,13 @@ namespace kris
 
 		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(Material::EPass pass, const GfxMaterial::GfxShaders& shaders, const nbl::asset::SVertexInputParams& vtxinput)
 		{
-			KRIS_UNUSED_PARAM(pass);
-
-			nbl::video::IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader = shaders.vertex.get() },
-				{.shader = shaders.pixel.get() },
+			static createGfxPipeline_fptr_t createGfxPipeline_table[Material::NumPasses] = {
+				&createBasePassGfxPipeline
 			};
 
-			nbl::asset::SBlendParams blendParams = {};
-			blendParams.blendParams[0u].srcColorFactor = nbl::asset::EBF_ONE;
-			blendParams.blendParams[0u].dstColorFactor = nbl::asset::EBF_ZERO;
-			blendParams.blendParams[0u].colorBlendOp = nbl::asset::EBO_ADD;
-			blendParams.blendParams[0u].srcAlphaFactor = nbl::asset::EBF_ONE;
-			blendParams.blendParams[0u].dstAlphaFactor = nbl::asset::EBF_ZERO;
-			blendParams.blendParams[0u].alphaBlendOp = nbl::asset::EBO_ADD;
-			blendParams.blendParams[0u].colorWriteMask = 0xfU;
+			const nbl::video::IGPURenderpass* renderpass = m_renderpasses[pass].get();
 
-			nbl::asset::SRasterizationParams rasterParams;
-			rasterParams.polygonMode = nbl::asset::EPM_FILL;
-			rasterParams.faceCullingMode = nbl::asset::EFCM_NONE;
-			rasterParams.depthWriteEnable = true;
-
-			nbl::asset::SPrimitiveAssemblyParams assemblyParams;
-
-			nbl::video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
-			params[0].layout = m_mtlPplnLayout.get();
-			params[0].shaders = specInfo;
-			params[0].cached = {
-				.vertexInput = vtxinput,
-				.primitiveAssembly = assemblyParams,
-				.rasterization = rasterParams,
-				.blend = blendParams,
-			};
-			params[0].renderpass = m_renderpass.get();
-
-			kris::refctd<nbl::video::IGPUGraphicsPipeline> gfx;
-
-			bool result = m_device->createGraphicsPipelines(nullptr, params, &gfx);
-			KRIS_ASSERT(result);
-
-			return gfx;
+			return createGfxPipeline_table[pass](m_device.get(), renderpass, m_mtlPplnLayout.get(), shaders, vtxinput);
 		}
 
 		refctd<nbl::video::IGPUComputePipeline> createComputePipelineForMaterial(nbl::asset::ICPUShader* cpucomp)
@@ -325,7 +296,7 @@ namespace kris
 
 		refctd<nbl::video::IGPUSampler> getSampler(const nbl::video::IGPUSampler::SParams& params);
 
-		refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
+		static refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
 
 		CommandRecorder createCommandRecorder(Material::EPass pass)
 		{
@@ -466,11 +437,11 @@ namespace kris
 		uint64_t m_currentFrameVal = FenceInitialVal + 1ULL;
 
 		refctd<nbl::video::ILogicalDevice> m_device;
-		refctd<nbl::video::IGPURenderpass> m_renderpass;
+		refctd<nbl::video::IGPURenderpass> m_renderpasses[Material::NumPasses];
 
 		refctd<nbl::video::ISemaphore> m_fence;
 
-		refctd<nbl::video::IGPUCommandPool> m_cmdPool[FramesInFlight];
+		refctd<nbl::video::IGPUCommandPool> m_cmdPool;
 		refctd<nbl::video::IDescriptorPool> m_descPool[FramesInFlight];
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
