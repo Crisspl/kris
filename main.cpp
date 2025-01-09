@@ -23,13 +23,13 @@ using namespace asset;
 using namespace video;
 
 // kris
-#include "resource_allocator.h"
-#include "renderer.h"
-#include "material.h"
-#include "material_builder.h"
-#include "mesh.h"
-#include "scene.h"
-#include "resource_utils.h"
+#include "kris/resource_allocator.h"
+#include "kris/renderer.h"
+#include "kris/material.h"
+#include "kris/material_builder.h"
+#include "kris/mesh.h"
+#include "kris/scene.h"
+#include "kris/resource_utils.h"
 
 struct GeometryCreator
 {
