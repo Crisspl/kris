@@ -52,6 +52,8 @@ namespace kris
 	{
 		FramesInFlight = 3U,
 
+		MaxColorBuffers = 8U,
+
 		ResourceMapSlots = 256U,
 		DefaultBufferResourceMapSlot = 0U,
 		DefaultImageResourceMapSlot = 1U,

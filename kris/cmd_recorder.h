@@ -5,6 +5,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "scene.h"
+#include "passes/pass_common.h"
 
 namespace kris
 {
@@ -126,6 +127,36 @@ namespace kris
 				auto& ib = ibarriers[i];
 				pushBarrier(ib.image, ib.dstaccess, ib.dststages, ib.dstlayout);
 			}
+		}
+
+		void beginRenderPass(const VkRect2D& area,
+			const nbl::video::IGPUCommandBuffer::SClearColorValue& clearcolor,
+			const nbl::video::IGPUCommandBuffer::SClearDepthStencilValue& cleardepth,
+			const Framebuffer& fb)
+		{
+			const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
+			{
+				.framebuffer = fb.m_fb.get(),
+				.colorClearValues = &clearcolor,
+				.depthStencilClearValues = &cleardepth,
+				.renderArea = area
+			};
+
+			for (uint32_t i = 0U; i < fb.m_colorCount; ++i)
+			{
+				m_resources.addResource(refctd(fb.m_colors[i]));
+			}
+			if (fb.m_depth)
+			{
+				m_resources.addResource(refctd(fb.m_depth));
+			}
+
+			cmdbuf->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		}
+
+		void endRenderPass()
+		{
+			cmdbuf->endRenderPass();
 		}
 
 	private:

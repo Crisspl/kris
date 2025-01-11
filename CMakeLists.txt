@@ -13,6 +13,7 @@ set(KRIS_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/kris/material_builder.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/kris/mesh.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/kris/scene.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/kris/passes/pass_common.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/kris/passes/base_pass.cpp"
 )
 set(KRIS_INCLUDES

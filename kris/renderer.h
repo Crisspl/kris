@@ -12,7 +12,6 @@
 
 namespace kris
 {
-
 	class Renderer
 	{
 		enum : uint32_t
@@ -63,11 +62,56 @@ namespace kris
 
 		}
 
-		void init(refctd<nbl::video::ILogicalDevice>&& dev, refctd<nbl::video::IGPURenderpass>&& renderpass,
+		void init(refctd<nbl::video::ILogicalDevice>&& dev, nbl::video::ISwapchain* sc, nbl::asset::E_FORMAT depthFormat,
 			uint32_t qFamIx, ResourceAllocator* ra, uint32_t defResourcesMemTypeBitsConstraints) 
 		{
 			m_device = std::move(dev);
-			m_renderpasses[Material::BasePass] = std::move(renderpass);
+
+			// init pass resources
+			{
+				const auto& sharedParams = sc->getCreationParameters().sharedParams;
+				const uint32_t w = sharedParams.width;
+				const uint32_t h = sharedParams.height;
+
+				createPassResources_fptr_t createPassResources_table[Material::NumPasses] = { };
+				createPassResources_table[Material::BasePass] = &base_pass::createPassResources;
+
+				refctd<ImageResource> scimages_refctd[FramesInFlight];
+				ImageResource* scimages[FramesInFlight];
+				KRIS_ASSERT(sc->getImageCount() == FramesInFlight);
+
+				for (uint32_t i = 0U; i < FramesInFlight; ++i)
+				{
+					scimages_refctd[i] = ra->registerExternalImage(sc->createImage(i));
+					scimages[i] = scimages_refctd[i].get();
+				}
+
+				// depth image
+				refctd<ImageResource> depthimage;
+				{
+					nbl::video::IGPUImage::SCreationParams ci = {};
+					ci.type = nbl::video::IGPUImage::ET_2D;
+					ci.samples = nbl::video::IGPUImage::ESCF_1_BIT;
+					ci.format = depthFormat;
+					ci.extent = { sharedParams.width,sharedParams.height,1 };
+					ci.mipLevels = 1U;
+					ci.arrayLayers = 1U;
+					ci.depthUsage = nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT;
+
+					depthimage = ra->allocImage(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
+				}
+
+				for (uint32_t pass = 0U; pass < Material::NumPasses; ++pass)
+				{
+					createPassResources_table[pass](m_passResources + pass,
+						m_device.get(),
+						ra,
+						scimages,
+						depthimage.get(),
+						w, h);
+				}
+			}
+
 			m_fence = m_device->createSemaphore(FenceInitialVal);
 			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
 			// cmd pool
@@ -218,6 +262,11 @@ namespace kris
 			}
 		}
 
+		const Framebuffer& getFramebuffer(uint32_t pass, uint32_t imgAcq)
+		{
+			return m_passResources[pass].m_fb[imgAcq];
+		}
+
 		MaterialDescriptorSet createDescriptorSetForMaterial()
 		{
 			// TODO why do we actually have 3 desc pools? Read about desc pools management
@@ -263,13 +312,7 @@ namespace kris
 
 		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(Material::EPass pass, const GfxMaterial::GfxShaders& shaders, const nbl::asset::SVertexInputParams& vtxinput)
 		{
-			static createGfxPipeline_fptr_t createGfxPipeline_table[Material::NumPasses] = {
-				&createBasePassGfxPipeline
-			};
-
-			const nbl::video::IGPURenderpass* renderpass = m_renderpasses[pass].get();
-
-			return createGfxPipeline_table[pass](m_device.get(), renderpass, m_mtlPplnLayout.get(), shaders, vtxinput);
+			return m_passResources[pass].createGfxPipeline(m_device.get(), m_mtlPplnLayout.get(), shaders, vtxinput);
 		}
 
 		refctd<nbl::video::IGPUComputePipeline> createComputePipelineForMaterial(nbl::asset::ICPUShader* cpucomp)
@@ -437,7 +480,7 @@ namespace kris
 		uint64_t m_currentFrameVal = FenceInitialVal + 1ULL;
 
 		refctd<nbl::video::ILogicalDevice> m_device;
-		refctd<nbl::video::IGPURenderpass> m_renderpasses[Material::NumPasses];
+		PassResources m_passResources[Material::NumPasses];
 
 		refctd<nbl::video::ISemaphore> m_fence;
 

@@ -186,88 +186,6 @@ struct GeometryCreator
 	}
 };
 
-class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
-{
-	using base_t = CDefaultSwapchainFramebuffers;
-
-public:
-	template<typename... Args>
-	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
-	{
-		const IPhysicalDevice::SImageFormatPromotionRequest req = {
-			.originalFormat = _desiredDepthFormat,
-			.usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
-		};
-		m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
-
-		const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
-			{{
-				{
-					.format = m_depthFormat,
-					.samples = IGPUImage::ESCF_1_BIT,
-					.mayAlias = false
-				},
-			/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
-			/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
-			/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
-			/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
-		}},
-		IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
-		};
-		m_params.depthStencilAttachments = depthAttachments;
-
-		static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-			m_params.subpasses[0],
-			IGPURenderpass::SCreationParams::SubpassesEnd
-		};
-		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
-		m_params.subpasses = subpasses;
-	}
-
-protected:
-	inline bool onCreateSwapchain_impl(const uint8_t qFam) override
-	{
-		auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
-
-		const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
-		const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-		auto image = device->createImage({ IImage::SCreationParams{
-			.type = IGPUImage::ET_2D,
-			.samples = IGPUImage::ESCF_1_BIT,
-			.format = depthFormat,
-			.extent = {sharedParams.width,sharedParams.height,1},
-			.mipLevels = 1,
-			.arrayLayers = 1,
-			.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
-		} });
-
-		device->allocate(image->getMemoryReqs(), image.get());
-
-		m_depthBuffer = device->createImageView({
-			.flags = IGPUImageView::ECF_NONE,
-			.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-			.image = std::move(image),
-			.viewType = IGPUImageView::ET_2D,
-			.format = depthFormat,
-			.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
-			});
-
-		const auto retval = base_t::onCreateSwapchain_impl(qFam);
-		m_depthBuffer = nullptr;
-		return retval;
-	}
-
-	inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
-	{
-		params.depthStencilAttachments = &m_depthBuffer.get();
-		return m_device->createFramebuffer(std::move(params));
-	}
-
-	E_FORMAT m_depthFormat;
-	// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
-	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
-};
-
 // For our Compute Shader
 constexpr uint32_t WorkgroupSize = 256;
 constexpr uint32_t WorkgroupCount = 2048;
@@ -294,32 +212,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
-#if 0
-			if (!m_surface)
-			{
-				{
-					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
-					nbl::ui::IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
-					params.width = WIN_W;
-					params.height = WIN_H;
-					params.x = 32;
-					params.y = 32;
-					params.flags = ui::IWindow::ECF_HIDDEN | nbl::ui::IWindow::ECF_BORDERLESS | nbl::ui::IWindow::ECF_RESIZABLE;
-					params.windowCaption = "KRIS-TestApp";
-					params.callback = windowCallback;
-					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
-				}
-
-				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<nbl::ui::IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
-			}
-
-			if (m_surface)
-				return { {m_surface->getSurface()/*,EQF_NONE*/} };
-
-			return {};
-#endif
 			return { {m_surface.get()/*,EQF_NONE*/} };
 		}
 
@@ -380,62 +272,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 					}
 				}
 
-				// renderpasses
-				{
-					m_renderpass = kris::Renderer::createRenderpass(
-						m_device.get(),
-						m_sc->getCreationParameters().surfaceFormat.format,
-						nbl::asset::EF_D16_UNORM);
-				}
-
-				//framebuffers
-				{
-					const auto& sharedParams = m_sc->getCreationParameters().sharedParams;
-
-					const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
-
-					// depth image
-					{
-						nbl::video::IGPUImage::SCreationParams ci = {};
-						ci.type = nbl::video::IGPUImage::ET_2D;
-						ci.samples = nbl::video::IGPUImage::ESCF_1_BIT;
-						ci.format = depthFormat;
-						ci.extent = { sharedParams.width,sharedParams.height,1 };
-						ci.mipLevels = 1U;
-						ci.arrayLayers = 1U;
-						ci.depthUsage = nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT;
-
-						m_depthimage = m_ResourceAlctr.allocImage(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
-					}
-
-					// color images and framebuffers
-					for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
-					{
-						m_scimages[i] = m_ResourceAlctr.registerExternalImage(m_sc->createImage(i));
-						auto colorview = m_scimages[i]->getView(
-							m_device.get(),
-							nbl::video::IGPUImageView::ET_2D,
-							m_scimages[i]->getImage()->getCreationParameters().format,
-							nbl::video::IGPUImage::EAF_COLOR_BIT,
-							0, 1, 0, 1);
-						auto depthview = m_depthimage->getView(
-							m_device.get(),
-							nbl::video::IGPUImageView::ET_2D,
-							m_depthimage->getImage()->getCreationParameters().format,
-							nbl::video::IGPUImage::EAF_DEPTH_BIT,
-							0, 1, 0, 1);
-
-						nbl::video::IGPUFramebuffer::SCreationParams ci;
-						ci.width = sharedParams.width;
-						ci.height = sharedParams.height;
-						ci.renderpass = m_renderpass;
-						ci.colorAttachments = &colorview.get();
-						ci.depthStencilAttachments = &depthview.get();
-
-						m_fb[i] = m_device->createFramebuffer(std::move(ci));
-					}
-				}
-
 				// image acquire semaphores
 				{
 					for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
@@ -485,7 +321,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				m_buffAllocation->getBuffer()->setObjectDebugName("My Output Buffer");
 			}
 
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(m_renderpass),
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), m_sc.get(), nbl::asset::EF_D16_UNORM,
 				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 			m_Scene.init(&m_Renderer);
 
@@ -667,6 +503,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 				// do draws within renderpass 
 				{
+					// begin renderpass
 					{
 						const VkRect2D currentRenderArea =
 						{
@@ -676,21 +513,17 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 						const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,0.f,1.f} };
 						const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
-						//auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-						const IGPUCommandBuffer::SRenderpassBeginInfo info =
-						{
-							.framebuffer = m_fb[m_currImgAcq].get(),//scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-							.colorClearValues = &clearValue,
-							.depthStencilClearValues = &depthValue,
-							.renderArea = currentRenderArea
-						};
 
-						cmdrec.cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+						cmdrec.beginRenderPass(
+							currentRenderArea,
+							clearValue,
+							depthValue,
+							m_Renderer.getFramebuffer(kris::Material::BasePass, m_currImgAcq));
 					}
 
 					cmdrec.drawSceneNode(m_device.get(), kris::Material::BasePass, m_scenenode.get());
 
-					cmdrec.cmdbuf->endRenderPass();
+					cmdrec.endRenderPass();
 				}
 
 				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
@@ -759,21 +592,12 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 	private:
 		smart_refctd_ptr<nbl::ui::IWindow> m_window;
-		//smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
 		kris::refctd<CSurfaceVulkanWin32> m_surface;
 		kris::refctd<nbl::video::ISwapchain> m_sc;
-
-		kris::refctd<nbl::video::IGPURenderpass> m_renderpass;
-
-		kris::refctd<kris::ImageResource> m_scimages[kris::FramesInFlight];
-		kris::refctd<kris::ImageResource> m_depthimage;
-		kris::refctd<nbl::video::IGPUFramebuffer> m_fb[kris::FramesInFlight];
 
 		uint64_t m_imgAcqCount = 0ULL;
 		kris::refctd<nbl::video::ISemaphore> m_imgacqSemaphore[kris::FramesInFlight];
 		uint32_t m_currImgAcq = 0U;
-
-		//ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<nbl::ui::IMouseEventChannel> mouse;
