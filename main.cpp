@@ -294,6 +294,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
+#if 0
 			if (!m_surface)
 			{
 				{
@@ -318,6 +319,8 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
 			return {};
+#endif
+			return { {m_surface.get()/*,EQF_NONE*/} };
 		}
 
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -327,60 +330,120 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
-			if (!swapchainParams.deduceFormat(m_physicalDevice))
-				return logFail("Could not choose a Surface Format for the Swapchain!");
-
-			// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
-			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-			// wipe-transition of Color to ATTACHMENT_OPTIMAL
-			{
-				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.dstSubpass = 0,
-				.memoryBarrier = {
-					// last place where the depth can get modified in previous frame
-					.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-					// destination needs to wait as early as possible
-					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-					// because of depth test needing a read and a write
-					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
-				}
-				// leave view offsets and flags default
-			},
-			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-			{
-				.srcSubpass = 0,
-				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier = {
-					// last place where the depth can get modified
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-					// spec says nothing is needed when presentation is the destination
-				}
-				// leave view offsets and flags default
-			},
-			IGPURenderpass::SCreationParams::DependenciesEnd
-			};
-
-			// TODO: promote the depth format if D16 not supported, or quote the spec if there's guaranteed support for it
-			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
-
-			//m_renderpass = kris::Renderer::createRenderpass(m_device.get(), swapchainParams.surfaceFormat.format, EF_D16_UNORM);
-			//auto* renderpass = m_renderpass.get();
-			auto* renderpass = scResources->getRenderpass();
-
-			if (!renderpass)
-				return logFail("Failed to create Renderpass!");
-
 			auto gQueue = getGraphicsQueue();
-			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
-				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
-			m_surface->recreateSwapchain();
+			{
+				// window and surface
+				{
+					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+					nbl::ui::IWindow::SCreationParams params = {};
+					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.width = WIN_W;
+					params.height = WIN_H;
+					params.x = 32;
+					params.y = 32;
+					params.flags = ui::IWindow::ECF_HIDDEN | nbl::ui::IWindow::ECF_BORDERLESS | nbl::ui::IWindow::ECF_RESIZABLE;
+					params.windowCaption = "KRIS-TestApp";
+					params.callback = windowCallback;
+					m_window = m_winMgr->createWindow(std::move(params));
+
+					m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
+
+					m_surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<nbl::ui::IWindowWin32>(m_window));
+				}
+
+				// swapchain
+				{
+					nbl::video::ISwapchain::SSharedCreationParams sci;
+					// 0s are invalid values, so they indicate we want them deduced
+					sci.width = 0;
+					sci.height = 0;
+					sci.minImageCount = kris::FramesInFlight;
+
+					sci.deduce(m_device->getPhysicalDevice(), m_surface.get());
+					KRIS_ASSERT(sci.minImageCount == kris::FramesInFlight);
+
+					ISwapchain::SCreationParams ci = {
+							.surface = core::smart_refctd_ptr<ISurface>(m_surface),
+							.surfaceFormat = {},
+							.sharedParams = sci
+							// we're not going to support concurrent sharing in this simple class
+					};
+
+					const bool success = ci.deduceFormat(m_device->getPhysicalDevice());
+					KRIS_ASSERT(success);
+
+					if (success)
+					{
+						m_sc = CVulkanSwapchain::create(kris::refctd(m_device), std::move(ci));
+						KRIS_ASSERT(m_sc->getImageCount() == kris::FramesInFlight);
+					}
+				}
+
+				// renderpasses
+				{
+					m_renderpass = kris::Renderer::createRenderpass(
+						m_device.get(),
+						m_sc->getCreationParameters().surfaceFormat.format,
+						nbl::asset::EF_D16_UNORM);
+				}
+
+				//framebuffers
+				{
+					const auto& sharedParams = m_sc->getCreationParameters().sharedParams;
+
+					const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
+
+					// depth image
+					{
+						nbl::video::IGPUImage::SCreationParams ci = {};
+						ci.type = nbl::video::IGPUImage::ET_2D;
+						ci.samples = nbl::video::IGPUImage::ESCF_1_BIT;
+						ci.format = depthFormat;
+						ci.extent = { sharedParams.width,sharedParams.height,1 };
+						ci.mipLevels = 1U;
+						ci.arrayLayers = 1U;
+						ci.depthUsage = nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT;
+
+						m_depthimage = m_ResourceAlctr.allocImage(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
+					}
+
+					// color images and framebuffers
+					for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
+					{
+						m_scimages[i] = m_ResourceAlctr.registerExternalImage(m_sc->createImage(i));
+						auto colorview = m_scimages[i]->getView(
+							m_device.get(),
+							nbl::video::IGPUImageView::ET_2D,
+							m_scimages[i]->getImage()->getCreationParameters().format,
+							nbl::video::IGPUImage::EAF_COLOR_BIT,
+							0, 1, 0, 1);
+						auto depthview = m_depthimage->getView(
+							m_device.get(),
+							nbl::video::IGPUImageView::ET_2D,
+							m_depthimage->getImage()->getCreationParameters().format,
+							nbl::video::IGPUImage::EAF_DEPTH_BIT,
+							0, 1, 0, 1);
+
+						nbl::video::IGPUFramebuffer::SCreationParams ci;
+						ci.width = sharedParams.width;
+						ci.height = sharedParams.height;
+						ci.renderpass = m_renderpass;
+						ci.colorAttachments = &colorview.get();
+						ci.depthStencilAttachments = &depthview.get();
+
+						m_fb[i] = m_device->createFramebuffer(std::move(ci));
+					}
+				}
+
+				// image acquire semaphores
+				{
+					for (uint32_t i = 0U; i < kris::FramesInFlight; ++i)
+					{
+						m_imgacqSemaphore[i] = m_device->createSemaphore(0ULL);
+					}
+				}
+			}
 
 			m_assetMgr = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(kris::refctd(m_system));
 
@@ -422,7 +485,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				m_buffAllocation->getBuffer()->setObjectDebugName("My Output Buffer");
 			}
 
-			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(renderpass),
+			m_Renderer.init(kris::refctd<nbl::video::ILogicalDevice>(m_device), kris::refctd<nbl::video::IGPURenderpass>(m_renderpass),
 				gQueue->getFamilyIndex(), &m_ResourceAlctr, m_physicalDevice->getHostVisibleMemoryTypeBits());
 			m_Scene.init(&m_Renderer);
 
@@ -517,7 +580,17 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			auto updatePresentationTimestamp = [&]()
 				{
-					m_currentImageAcquire = m_surface->acquireNextImage();
+					const uint64_t acqSignal = ++m_imgAcqCount;
+					nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = {
+						.semaphore = m_imgacqSemaphore[acqSignal % (uint64_t)kris::FramesInFlight].get(),
+						.value = acqSignal
+					};
+
+					//m_currentImageAcquire = m_surface->acquireNextImage();
+					nbl::video::ISwapchain::SAcquireInfo acq;
+					acq.queue = getGraphicsQueue();
+					acq.signalSemaphores = { &signalInfo, 1 };
+					m_sc->acquireNextImage(acq, &m_currImgAcq);
 
 					oracle.reportEndFrameRecord();
 					const auto timestamp = oracle.getNextPresentationTimeStamp();
@@ -532,8 +605,8 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			const auto dt = oracle.getDeltaTimeInMicroSeconds() * 1e-6;
 			workloopTime += dt;
 
-			if (!m_currentImageAcquire)
-				return;
+			//if (!m_currentImageAcquire)
+			//	return;
 
 			camera.beginInputProcessing(nextPresentationTimestamp);
 			mouse.consumeEvents([&](const nbl::ui::IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
@@ -603,10 +676,10 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 						const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,0.f,1.f} };
 						const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
-						auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+						//auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 						const IGPUCommandBuffer::SRenderpassBeginInfo info =
 						{
-							.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+							.framebuffer = m_fb[m_currImgAcq].get(),//scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 							.colorClearValues = &clearValue,
 							.depthStencilClearValues = &depthValue,
 							.renderArea = currentRenderArea
@@ -657,13 +730,23 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			m_buffAllocation->unmap();
 #endif
 
-			m_surface->present(m_currentImageAcquire.imageIndex, { &rendered, 1U });
+			//m_sc->present(m_currentImageAcquire.imageIndex, { &rendered, 1U });
+			// present
+			{
+				const nbl::video::ISwapchain::SPresentInfo info = {
+					.queue = getGraphicsQueue(),
+					.imgIndex = m_currImgAcq,
+					.waitSemaphores = {&rendered, 1}
+				};
+
+				m_sc->present(info);
+			}
 		}
 
 		inline bool keepRunning() override
 		{
-			if (m_surface->irrecoverable())
-				return false;
+			//if (m_surface->irrecoverable())
+			//	return false;
 
 			return true;
 		}
@@ -676,9 +759,21 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 	private:
 		smart_refctd_ptr<nbl::ui::IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+		//smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+		kris::refctd<CSurfaceVulkanWin32> m_surface;
+		kris::refctd<nbl::video::ISwapchain> m_sc;
 
-		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+		kris::refctd<nbl::video::IGPURenderpass> m_renderpass;
+
+		kris::refctd<kris::ImageResource> m_scimages[kris::FramesInFlight];
+		kris::refctd<kris::ImageResource> m_depthimage;
+		kris::refctd<nbl::video::IGPUFramebuffer> m_fb[kris::FramesInFlight];
+
+		uint64_t m_imgAcqCount = 0ULL;
+		kris::refctd<nbl::video::ISemaphore> m_imgacqSemaphore[kris::FramesInFlight];
+		uint32_t m_currImgAcq = 0U;
+
+		//ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<nbl::ui::IMouseEventChannel> mouse;
@@ -690,8 +785,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 		kris::refctd<nbl::asset::IAssetManager> m_assetMgr;
 
 		GeometryCreator::return_type m_cubedata;
-
-		//kris::refctd<nbl::video::IGPURenderpass> m_renderpass;
 
 		kris::ResourceAllocator m_ResourceAlctr;
 		kris::Renderer m_Renderer;

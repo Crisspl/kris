@@ -198,12 +198,23 @@ namespace kris
 		};
 
 	public:
+		enum AllocFlags : uint32_t
+		{
+			None = 0U,
+			External = 1U << 1,
+		};
+
 		struct Allocation : public nbl::core::IReferenceCounted, public nbl::core::Uncopyable
 		{
-			Allocation(ResourceAllocator* a, const MemHeap::Allocation& al, refctd<nbl::video::IBackendObject>&& res, uint32_t maxViews) :
+			Allocation(ResourceAllocator* a, 
+				const MemHeap::Allocation& al, 
+				refctd<nbl::video::IBackendObject>&& res, 
+				uint32_t maxViews, 
+				nbl::core::bitflag<AllocFlags> _flags) :
 				alctr(a),
 				allocation(al),
 				resource(std::move(res)),
+				flags(_flags),
 				m_id(static_getNewId()),
 				m_views(maxViews)
 			{
@@ -258,6 +269,8 @@ namespace kris
 			MemHeap::Allocation allocation;
 			refctd<nbl::video::IBackendObject> resource;
 
+			nbl::core::bitflag<AllocFlags> flags;
+
 			nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> lastAccesses = nbl::asset::ACCESS_FLAGS::NONE;
 			nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> lastStages = nbl::asset::PIPELINE_STAGE_FLAGS::NONE;
 
@@ -269,7 +282,10 @@ namespace kris
 					resource->getDebugName());
 				size_t size = this->getSize();
 				resource = nullptr;
-				alctr->deallocate(this, size);
+				if (!flags.hasFlags(AllocFlags::External)) // do not deallocate external allocations
+				{
+					alctr->deallocate(this, size);
+				}
 			}
 
 			struct View : public nbl::core::IReferenceCounted, public nbl::core::Uncopyable
@@ -332,8 +348,8 @@ namespace kris
 			};
 
 		public:
-			BufferAllocation(ResourceAllocator* a, refctd<nbl::video::IGPUBuffer>&& buf, const MemHeap::Allocation& al) :
-				Allocation(a, al, std::move(buf), MaxBufferViews)
+			BufferAllocation(ResourceAllocator* a, refctd<nbl::video::IGPUBuffer>&& buf, const MemHeap::Allocation& al, nbl::core::bitflag<AllocFlags> _flags) :
+				Allocation(a, al, std::move(buf), MaxBufferViews, _flags)
 			{
 			}
 			virtual ~BufferAllocation()
@@ -402,8 +418,8 @@ namespace kris
 			};
 
 		public:
-			ImageAllocation(ResourceAllocator* a, refctd<nbl::video::IGPUImage>&& img, const MemHeap::Allocation& al) :
-				Allocation(a, al, std::move(img), MaxImageViews)
+			ImageAllocation(ResourceAllocator* a, refctd<nbl::video::IGPUImage>&& img, const MemHeap::Allocation& al, nbl::core::bitflag<AllocFlags> _flags) :
+				Allocation(a, al, std::move(img), MaxImageViews, _flags)
 			{
 			}
 			virtual ~ImageAllocation()
@@ -464,8 +480,10 @@ namespace kris
 			}
 		}
 
-		refctd<BufferAllocation> allocBuffer(nbl::video::ILogicalDevice* device, nbl::video::IGPUBuffer::SCreationParams&& params, uint32_t memTypeBitsConstraints)
+		refctd<BufferAllocation> allocBuffer(nbl::video::ILogicalDevice* device, nbl::video::IGPUBuffer::SCreationParams&& params, uint32_t memTypeBitsConstraints, nbl::core::bitflag<AllocFlags> flags = AllocFlags::None)
 		{
+			KRIS_ASSERT(flags == AllocFlags::None);
+
 			const size_t size = params.size;
 			refctd<nbl::video::IGPUBuffer> buf = device->createBuffer(std::move(params));
 
@@ -481,11 +499,18 @@ namespace kris
 				device->bindBufferMemory(1U, info);
 			}
 
-			return nbl::core::make_smart_refctd_ptr<BufferAllocation>(this, std::move(buf), al);
+			return nbl::core::make_smart_refctd_ptr<BufferAllocation>(this, std::move(buf), al, flags);
 		}
 
-		refctd<ImageAllocation> allocImage(nbl::video::ILogicalDevice* device, nbl::video::IGPUImage::SCreationParams&& params, uint32_t memTypeBitsConstraints)
+		refctd<BufferAllocation> registerExternalBuffer(refctd<nbl::video::IGPUBuffer>&& buffer, nbl::core::bitflag<AllocFlags> flags = AllocFlags::None)
 		{
+			return nbl::core::make_smart_refctd_ptr<BufferAllocation>(this, std::move(buffer), MemHeap::Allocation{}, flags | AllocFlags::External);
+		}
+
+		refctd<ImageAllocation> allocImage(nbl::video::ILogicalDevice* device, nbl::video::IGPUImage::SCreationParams&& params, uint32_t memTypeBitsConstraints, nbl::core::bitflag<AllocFlags> flags = AllocFlags::None)
+		{
+			KRIS_ASSERT(flags == AllocFlags::None);
+
 			refctd<nbl::video::IGPUImage> img = device->createImage(std::move(params));
 
 			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements req = img->getMemoryReqs();
@@ -502,7 +527,12 @@ namespace kris
 				device->bindImageMemory(1U, info);
 			}
 
-			return nbl::core::make_smart_refctd_ptr<ImageAllocation>(this, std::move(img), al);
+			return nbl::core::make_smart_refctd_ptr<ImageAllocation>(this, std::move(img), al, flags);
+		}
+
+		refctd<ImageAllocation> registerExternalImage(refctd<nbl::video::IGPUImage>&& image, nbl::core::bitflag<AllocFlags> flags = AllocFlags::None)
+		{
+			return nbl::core::make_smart_refctd_ptr<ImageAllocation>(this, std::move(image), MemHeap::Allocation{}, flags | AllocFlags::External);
 		}
 
 		void deallocate(Allocation* al, size_t size)
