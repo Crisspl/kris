@@ -473,10 +473,10 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			// Record all the commands to command buffer using CommandRecorder
 			{
-				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::Material::BasePass);
+				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::BasePass);
 
 				cmdrec.setupMaterial(m_device.get(), m_mtl.get()); // first setup for dispatch (update desc set, memory barriers)
-				cmdrec.dispatch(m_device.get(), kris::Material::BasePass, m_mtl.get(), WorkgroupCount, 1, 1); // do actual dispatch
+				cmdrec.dispatch(m_device.get(), kris::BasePass, m_mtl.get(), WorkgroupCount, 1, 1); // do actual dispatch
 
 				asset::SViewport viewport;
 				{
@@ -518,15 +518,15 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 							currentRenderArea,
 							clearValue,
 							depthValue,
-							m_Renderer.getFramebuffer(kris::Material::BasePass, m_currImgAcq));
+							m_Renderer.getFramebuffer(kris::BasePass, m_currImgAcq));
 					}
 
-					cmdrec.drawSceneNode(m_device.get(), kris::Material::BasePass, m_scenenode.get());
+					cmdrec.drawSceneNode(m_device.get(), kris::BasePass, m_scenenode.get());
 
 					cmdrec.endRenderPass();
 				}
 
-				m_Renderer.consumeAsPass(kris::Material::BasePass, std::move(cmdrec));
+				m_Renderer.consumeAsPass(kris::BasePass, std::move(cmdrec));
 			}
 
 			//m_api->startCapture();

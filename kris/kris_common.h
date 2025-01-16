@@ -68,6 +68,13 @@ namespace kris
 		MaterialDescSetIndex = 3U
 	};
 
+	enum EPass : uint32_t
+	{
+		BasePass = 0U,
+
+		NumPasses
+	};
+
 #define KRIS_DEBUG_LOGGER_WRITE_TO_STDOUT 1
 	class CDebugLogger : public nbl::system::IThreadsafeLogger
 	{

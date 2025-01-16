@@ -424,10 +424,10 @@ namespace kris
         {
             KRIS_ASSERT(vertex == nullptr && pixel == nullptr);
 
-            auto cmtl = renderer->createComputeMaterial(1U << Material::BasePass, 0U /*to be adjusted*/);
+            auto cmtl = renderer->createComputeMaterial(1U << BasePass, 0U /*to be adjusted*/);
 
             auto comp = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_COMPUTE, compute);
-            cmtl->m_computePso[Material::BasePass] = renderer->createComputePipelineForMaterial(comp.get());
+            cmtl->m_computePso[BasePass] = renderer->createComputePipelineForMaterial(comp.get());
 
             mtl = std::move(cmtl);
         }
@@ -435,15 +435,15 @@ namespace kris
         {
             KRIS_ASSERT(compute == nullptr);
 
-            auto gmtl = renderer->createGfxMaterial(1U << Material::BasePass, 0U /*to be adjusted*/);
+            auto gmtl = renderer->createGfxMaterial(1U << BasePass, 0U /*to be adjusted*/);
 
             auto cpuvert = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_VERTEX, vertex);
             KRIS_ASSERT(cpuvert);
             auto cpufrag = parseShader(m_compiler.get(), logger, filepath_str, nbl::hlsl::ESS_FRAGMENT, pixel);
             KRIS_ASSERT(cpufrag);
             
-            gmtl->m_gfxShaders[Material::BasePass].vertex = renderer->createShader(cpuvert.get());
-            gmtl->m_gfxShaders[Material::BasePass].pixel = renderer->createShader(cpufrag.get());
+            gmtl->m_gfxShaders[BasePass].vertex = renderer->createShader(cpuvert.get());
+            gmtl->m_gfxShaders[BasePass].pixel = renderer->createShader(cpufrag.get());
 
             mtl = std::move(gmtl);
         }

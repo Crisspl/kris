@@ -73,8 +73,8 @@ namespace kris
 				const uint32_t w = sharedParams.width;
 				const uint32_t h = sharedParams.height;
 
-				createPassResources_fptr_t createPassResources_table[Material::NumPasses] = { };
-				createPassResources_table[Material::BasePass] = &base_pass::createPassResources;
+				createPassResources_fptr_t createPassResources_table[NumPasses] = { };
+				createPassResources_table[BasePass] = &base_pass::createPassResources;
 
 				refctd<ImageResource> scimages_refctd[FramesInFlight];
 				ImageResource* scimages[FramesInFlight];
@@ -101,7 +101,7 @@ namespace kris
 					depthimage = ra->allocImage(m_device.get(), std::move(ci), m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits());
 				}
 
-				for (uint32_t pass = 0U; pass < Material::NumPasses; ++pass)
+				for (uint32_t pass = 0U; pass < NumPasses; ++pass)
 				{
 					createPassResources_table[pass](m_passResources + pass,
 						m_device.get(),
@@ -123,7 +123,7 @@ namespace kris
 			{
 				// cmd buffers
 				{
-					m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],Material::NumPasses });
+					m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],NumPasses });
 				}
 				// desc pool
 				{
@@ -310,7 +310,7 @@ namespace kris
 			return createMaterial<ComputeMaterial>(passMask, bndMask);
 		}
 
-		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(Material::EPass pass, const GfxMaterial::GfxShaders& shaders, const nbl::asset::SVertexInputParams& vtxinput)
+		refctd<nbl::video::IGPUGraphicsPipeline> createGraphicsPipelineForMaterial(EPass pass, const GfxMaterial::GfxShaders& shaders, const nbl::asset::SVertexInputParams& vtxinput)
 		{
 			return m_passResources[pass].createGfxPipeline(m_device.get(), m_mtlPplnLayout.get(), shaders, vtxinput);
 		}
@@ -341,7 +341,7 @@ namespace kris
 
 		static refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
 
-		CommandRecorder createCommandRecorder(Material::EPass pass)
+		CommandRecorder createCommandRecorder(EPass pass)
 		{
 			refctd<nbl::video::IGPUCommandBuffer>& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][pass];
 			
@@ -353,7 +353,7 @@ namespace kris
 			return SceneNodeDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_sceneNodeDsl)));
 		}
 
-		void consumeAsPass(Material::EPass pass, CommandRecorder&& cmdrec)
+		void consumeAsPass(EPass pass, CommandRecorder&& cmdrec)
 		{
 			KRIS_ASSERT(pass == cmdrec.pass);
 
@@ -380,7 +380,7 @@ namespace kris
 					return false;
 			}
 
-			for (uint32_t p = 0U; p < Material::NumPasses; ++p)
+			for (uint32_t p = 0U; p < NumPasses; ++p)
 			{
 				auto& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][p];
 
@@ -408,8 +408,8 @@ namespace kris
 
 		nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo submit(nbl::video::IQueue* cmdq, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> flags)
 		{
-			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[Material::NumPasses];
-			for (uint32_t i = 0U; i < Material::NumPasses; ++i)
+			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[NumPasses];
+			for (uint32_t i = 0U; i < NumPasses; ++i)
 				cmdbufs[i].cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][i].get();
 
 			nbl::video::IQueue::SSubmitInfo submitInfos[1] = {};
@@ -480,7 +480,7 @@ namespace kris
 		uint64_t m_currentFrameVal = FenceInitialVal + 1ULL;
 
 		refctd<nbl::video::ILogicalDevice> m_device;
-		PassResources m_passResources[Material::NumPasses];
+		PassResources m_passResources[NumPasses];
 
 		refctd<nbl::video::ISemaphore> m_fence;
 
@@ -489,7 +489,7 @@ namespace kris
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
-		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][Material::NumPasses];
+		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][NumPasses];
 
 		// camera ds resources
 		struct {

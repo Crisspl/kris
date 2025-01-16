@@ -25,7 +25,7 @@ namespace kris
 			setupDrawSceneNode(device, child.get());
 	}
 
-	void CommandRecorder::drawSceneNode(nbl::video::ILogicalDevice* device, Material::EPass pass, SceneNode* node)
+	void CommandRecorder::drawSceneNode(nbl::video::ILogicalDevice* device, EPass pass, SceneNode* node)
 	{
 		auto* mesh = node->m_mesh.get();
 		// bind node ds
@@ -59,7 +59,7 @@ namespace kris
 		emitBarrierCmd();
 	}
 
-	void CommandRecorder::drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh)
+	void CommandRecorder::drawMesh(nbl::video::ILogicalDevice* device, EPass pass, Mesh* mesh)
 	{
 		KRIS_ASSERT((mesh->getPassMask() & (1U << pass)) != 0U);
 

@@ -231,14 +231,6 @@ namespace kris
 			return nbl::asset::ACCESS_FLAGS::NONE;
 		}
 
-		enum EPass : uint32_t
-		{
-			BasePass = 0U,
-
-			NumPasses
-		};
-
-
 		explicit Material(uint32_t passmask, uint32_t bndmask) : m_passMask(passmask), m_bndMask(bndmask)
 		{
 			for (uint32_t i = 0U; i < MaterialDescriptorSet::MaxBindings; ++i)

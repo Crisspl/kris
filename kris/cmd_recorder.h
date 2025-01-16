@@ -52,10 +52,10 @@ namespace kris
 		};
 
 		uint32_t frameIx = 0U;
-		Material::EPass pass = Material::EPass::NumPasses;
+		EPass pass = EPass::NumPasses;
 		refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
 
-		explicit CommandRecorder(uint32_t _frameix, Material::EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
+		explicit CommandRecorder(uint32_t _frameix, EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
 			frameIx(_frameix),
 			pass(_pass),
 			cmdbuf(std::move(cb))
@@ -71,7 +71,7 @@ namespace kris
 			out_Result.resources = std::move(m_resources);
 		}
 
-		void dispatch(nbl::video::ILogicalDevice* device, Material::EPass pass,
+		void dispatch(nbl::video::ILogicalDevice* device, EPass pass,
 			ComputeMaterial* mtl, uint32_t wgcx, uint32_t wgcy, uint32_t wgcz)
 		{
 			setComputeMaterial(device, pass, mtl);
@@ -81,7 +81,7 @@ namespace kris
 			cmdbuf->dispatch(wgcx, wgcy, wgcz);
 		}
 
-		void setGfxMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, 
+		void setGfxMaterial(nbl::video::ILogicalDevice* device, EPass pass, 
 			const nbl::asset::SVertexInputParams& vtxinput, GfxMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
@@ -93,7 +93,7 @@ namespace kris
 			setMaterialCommon(device, layout, mtl);
 		}
 
-		void setComputeMaterial(nbl::video::ILogicalDevice* device, Material::EPass pass, ComputeMaterial* mtl)
+		void setComputeMaterial(nbl::video::ILogicalDevice* device, EPass pass, ComputeMaterial* mtl)
 		{
 			KRIS_ASSERT(mtl->livesInPass(pass));
 
@@ -105,10 +105,10 @@ namespace kris
 		}
 
 		void setupDrawSceneNode(nbl::video::ILogicalDevice* device, SceneNode* mesh);
-		void drawSceneNode(nbl::video::ILogicalDevice* device, Material::EPass pass, SceneNode* mesh);
+		void drawSceneNode(nbl::video::ILogicalDevice* device, EPass pass, SceneNode* mesh);
 
 		void setupDrawMesh(nbl::video::ILogicalDevice* device, Mesh* mesh);
-		void drawMesh(nbl::video::ILogicalDevice* device, Material::EPass pass, Mesh* mesh);
+		void drawMesh(nbl::video::ILogicalDevice* device, EPass pass, Mesh* mesh);
 
 		void setupMaterial(nbl::video::ILogicalDevice* device, Material* mtl)
 		{

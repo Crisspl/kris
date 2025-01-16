@@ -29,7 +29,7 @@ namespace kris
             return m_mtl ? m_mtl->m_passMask : 0U;
         }
 
-        nbl::video::IGPUGraphicsPipeline* getPipeline(Material::EPass pass)
+        nbl::video::IGPUGraphicsPipeline* getPipeline(EPass pass)
         {
             return m_mtl->getGfxPipeline(pass, m_vtxinput);
         }

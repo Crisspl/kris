@@ -25,11 +25,13 @@ namespace kris::base_pass
 		subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0,.layout = nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} };
 		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
 
+#if 0
 		const nbl::video::IPhysicalDevice::SImageFormatPromotionRequest req = {
 		.originalFormat = depthFormat,
 		.usages = {nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
 		};
 		depthFormat = device->getPhysicalDevice()->promoteImageFormat(req, nbl::video::IGPUImage::TILING::OPTIMAL);
+#endif
 
 		const static nbl::video::IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
 			{{
