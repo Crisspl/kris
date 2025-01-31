@@ -5,6 +5,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "resource_allocator.h"
+#include "resource_utils.h"
 #include "CCamera.hpp"
 
 #include "passes/pass_common.h"
@@ -140,6 +141,11 @@ namespace kris
 
 					m_descPool[i] = m_device->createDescriptorPool(ci);
 				}
+
+				// resource utils
+				{
+					m_rsrcUtils[i] = std::make_unique<ResourceUtils>(m_device.get(), ra);
+				}
 			}
 
 			// Camera resources
@@ -255,6 +261,11 @@ namespace kris
 			{
 				resourceMap.slots[i] = getDefaultBufferResource();
 			}
+		}
+
+		ResourceUtils* getResourceUtils()
+		{
+			return m_rsrcUtils[getCurrentFrameIx()].get();
 		}
 
 		const Framebuffer& getFramebuffer(uint32_t pass, uint32_t imgAcq)
@@ -536,6 +547,7 @@ namespace kris
 
 		refctd<nbl::video::IGPUCommandPool> m_cmdPool;
 		refctd<nbl::video::IDescriptorPool> m_descPool[FramesInFlight];
+		std::unique_ptr<ResourceUtils> m_rsrcUtils[FramesInFlight];
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 

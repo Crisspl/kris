@@ -55,6 +55,7 @@ namespace kris
 		EPass pass = EPass::NumPasses;
 		refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
 
+		CommandRecorder() = default; // creating cmdrec in invalid state
 		explicit CommandRecorder(uint32_t _frameix, EPass _pass, refctd<nbl::video::IGPUCommandBuffer>&& cb) :
 			frameIx(_frameix),
 			pass(_pass),

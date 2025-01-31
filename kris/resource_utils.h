@@ -29,11 +29,10 @@ namespace kris
         }
 
     public:
-        ResourceUtils(nbl::video::ILogicalDevice* device, ResourceAllocator* ra, CommandRecorder&& cmdrec) :
+        ResourceUtils(nbl::video::ILogicalDevice* device, ResourceAllocator* ra) :
             m_device(device),
             m_addrAlctrScratch(KRIS_MEM_ALLOC(addr_alctr_t::reserved_size(64U, StagingBufSize, 64U))),
-            m_addrAlctr(m_addrAlctrScratch, 0U, 0U, 64U, StagingBufSize, 64U),
-            m_cmdrec(std::move(cmdrec))
+            m_addrAlctr(m_addrAlctrScratch, 0U, 0U, 64U, StagingBufSize, 64U)
         {
             nbl::video::IGPUBuffer::SCreationParams ci = {};
             ci.size = StagingBufSize;
@@ -46,8 +45,9 @@ namespace kris
             KRIS_MEM_FREE(m_addrAlctrScratch);
         }
 
-        void beginTransferPass()
+        void beginTransferPass(CommandRecorder&& cmdrec)
         {
+            m_cmdrec = std::move(cmdrec);
             m_addrAlctr.reset();
         }
 

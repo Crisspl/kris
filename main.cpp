@@ -459,30 +459,30 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			// Record all the commands to command buffer using CommandRecorder
 			// transfer pass
 			{
-				kris::ResourceUtils utils(m_device.get(), &m_ResourceAlctr, m_Renderer.createCommandRecorder());
-				utils.beginTransferPass();
+				kris::ResourceUtils* utils = m_Renderer.getResourceUtils();
+				utils->beginTransferPass(m_Renderer.createCommandRecorder());
 
 				kris::Mesh* mesh = m_scenenode->m_mesh.get();
 
 				{
 					auto* vtxbuf = mesh->m_vtxBuf.get();
 					auto& vtxbuf_data = m_cubedata.bindings[0].buffer;
-					utils.uploadBufferData(vtxbuf, 0U, vtxbuf->getSize(), vtxbuf_data->getPointer());
+					utils->uploadBufferData(vtxbuf, 0U, vtxbuf->getSize(), vtxbuf_data->getPointer());
 				}
 
 				{
 					auto* idxbuf = mesh->m_idxBuf.get();
 					auto& idxbuf_data = m_cubedata.indexBuffer.buffer;
-					utils.uploadBufferData(idxbuf, 0U, idxbuf->getSize(), idxbuf_data->getPointer());
+					utils->uploadBufferData(idxbuf, 0U, idxbuf->getSize(), idxbuf_data->getPointer());
 				}
 
 				// image upload
 				{
 					auto* tex = static_cast<kris::ImageResource*>(mesh->m_resources[0].res.get());
-					utils.uploadImageData(tex, m_cpuimg.get());
+					utils->uploadImageData(tex, m_cpuimg.get());
 				}
 
-				m_Renderer.consumeAsTransfer(std::move(utils.getResult()));
+				m_Renderer.consumeAsTransfer(std::move(utils->getResult()));
 			}
 			// base pass
 			{
@@ -585,7 +585,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 					.waitSemaphores = {&rendered, 1}
 				};
 
-				m_sc->present(info);
+				m_shouldClose = (m_sc->present(info) == nbl::video::ISwapchain::PRESENT_RESULT::OUT_OF_DATE);
 			}
 		}
 
@@ -594,7 +594,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			//if (m_surface->irrecoverable())
 			//	return false;
 
-			return true;
+			return !m_shouldClose;
 		}
 
 		inline bool onAppTerminated() override
@@ -607,6 +607,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<nbl::ui::IWindow> m_window;
 		kris::refctd<CSurfaceVulkanWin32> m_surface;
 		kris::refctd<nbl::video::ISwapchain> m_sc;
+		bool m_shouldClose = false;
 
 		uint64_t m_imgAcqCount = 0ULL;
 		kris::refctd<nbl::video::ISemaphore> m_imgacqSemaphore[kris::FramesInFlight];
