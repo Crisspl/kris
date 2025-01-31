@@ -469,7 +469,7 @@ namespace kris
 			nbl::video::IGPUImage* getImage() const { return static_cast<nbl::video::IGPUImage*>(resource.get()); }
 			size_t getSize() const override { return getImage()->getMemoryReqs().size; }
 
-			nbl::video::IGPUImage::LAYOUT layout;
+			nbl::video::IGPUImage::LAYOUT layout = nbl::video::IGPUImage::LAYOUT::UNDEFINED;
 		};
 
 		ResourceAllocator()

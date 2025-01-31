@@ -286,7 +286,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			// Allocate the memory
 			// allocate image (texture for cube mesh)
 			kris::refctd<kris::ImageResource> imageResource;
-			kris::refctd<nbl::asset::ICPUImage> cpuimg;
 			{
 				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 				IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
@@ -295,10 +294,10 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 				KRIS_ASSERT(!imageContents.empty());
 				auto cpuimgview = nbl::core::smart_refctd_ptr_static_cast<nbl::asset::ICPUImageView>(*imageContents.begin());
 
-				cpuimg = cpuimgview->getCreationParameters().image;
+				m_cpuimg = cpuimgview->getCreationParameters().image;
 
 				nbl::video::IGPUImage::SCreationParams params;
-				static_cast<nbl::asset::IImage::SCreationParams&>(params) = cpuimg->getCreationParameters();
+				static_cast<nbl::asset::IImage::SCreationParams&>(params) = m_cpuimg->getCreationParameters();
 
 				imageResource = m_ResourceAlctr.allocImage(m_device.get(), std::move(params), m_physicalDevice->getDeviceLocalMemoryTypeBits());
 			}
@@ -331,9 +330,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			{
 				m_cubedata = GeometryCreator::createCubeMesh({ 0.5f, 0.5f, 0.5f });
 				
-				kris::ResourceUtils utils(m_device.get(), getTransferUpQueue()->getFamilyIndex(), &m_ResourceAlctr);
-				utils.beginTransferPass();
-
 				kris::refctd<kris::BufferResource> vtxbuf;
 				{
 					auto& vtxbuf_data = m_cubedata.bindings[0].buffer;
@@ -343,7 +339,6 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 					ci.usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT) |
 						nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 					vtxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getDeviceLocalMemoryTypeBits());
-					utils.uploadBufferData(vtxbuf.get(), 0U, vtxbuf->getSize(), vtxbuf_data->getPointer());
 				}
 				
 				kris::refctd<kris::BufferResource> idxbuf;
@@ -355,18 +350,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 					ci.usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT) |
 						nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 					idxbuf = m_ResourceAlctr.allocBuffer(m_device.get(), std::move(ci), m_physicalDevice->getDeviceLocalMemoryTypeBits());
-					utils.uploadBufferData(idxbuf.get(), 0U, idxbuf->getSize(), idxbuf_data->getPointer());
 				}
-
-				// image upload
-				{
-					utils.uploadImageData(imageResource.get(), cpuimg.get());
-				}
-
-				//m_api->startCapture();
-				utils.endPassAndSubmit(getTransferUpQueue());
-				//m_api->endCapture();
-				utils.blockForSubmit();
 
 				{
 					auto mesh = nbl::core::make_smart_refctd_ptr<kris::Mesh>();
@@ -471,7 +455,36 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 			m_Renderer.beginFrame(&camera);
 
+
 			// Record all the commands to command buffer using CommandRecorder
+			// transfer pass
+			{
+				kris::ResourceUtils utils(m_device.get(), &m_ResourceAlctr, m_Renderer.createCommandRecorder());
+				utils.beginTransferPass();
+
+				kris::Mesh* mesh = m_scenenode->m_mesh.get();
+
+				{
+					auto* vtxbuf = mesh->m_vtxBuf.get();
+					auto& vtxbuf_data = m_cubedata.bindings[0].buffer;
+					utils.uploadBufferData(vtxbuf, 0U, vtxbuf->getSize(), vtxbuf_data->getPointer());
+				}
+
+				{
+					auto* idxbuf = mesh->m_idxBuf.get();
+					auto& idxbuf_data = m_cubedata.indexBuffer.buffer;
+					utils.uploadBufferData(idxbuf, 0U, idxbuf->getSize(), idxbuf_data->getPointer());
+				}
+
+				// image upload
+				{
+					auto* tex = static_cast<kris::ImageResource*>(mesh->m_resources[0].res.get());
+					utils.uploadImageData(tex, m_cpuimg.get());
+				}
+
+				m_Renderer.consumeAsTransfer(std::move(utils.getResult()));
+			}
+			// base pass
 			{
 				kris::CommandRecorder cmdrec = m_Renderer.createCommandRecorder(kris::BasePass);
 
@@ -530,7 +543,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 			}
 
 			//m_api->startCapture();
-			auto rendered = m_Renderer.submit(getGraphicsQueue(),
+			auto rendered = m_Renderer.submitFrame(getGraphicsQueue(),
 				nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS>(nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT) | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS);
 			//m_api->endCapture();
 
@@ -608,6 +621,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 		kris::refctd<nbl::asset::IAssetManager> m_assetMgr;
 
+		kris::refctd<nbl::asset::ICPUImage> m_cpuimg;
 		GeometryCreator::return_type m_cubedata;
 
 		kris::ResourceAllocator m_ResourceAlctr;

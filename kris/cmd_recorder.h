@@ -13,7 +13,7 @@ namespace kris
 
 	class DeferredAllocDeletion final
 	{
-		using resouce_ptr = refctd<ResourceAllocator::Allocation>;
+		using resouce_ptr = refctd<Resource>;
 		nbl::core::vector<resouce_ptr> m_resources;
 
 	public:
@@ -69,6 +69,32 @@ namespace kris
 			cmdbuf->end();
 			out_Result.cmdbuf = std::move(cmdbuf);
 			out_Result.resources = std::move(m_resources);
+		}
+
+		void copyBuffer(BufferResource* const srcBuffer, BufferResource* const dstBuffer, uint32_t regionCount, const nbl::video::IGPUCommandBuffer::SBufferCopy* const pRegions)
+		{
+			m_resources.addResource(refctd<Resource>(srcBuffer));
+			m_resources.addResource(refctd<Resource>(dstBuffer));
+
+			pushBarrier(srcBuffer, nbl::asset::ACCESS_FLAGS::TRANSFER_READ_BIT, nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT);
+			pushBarrier(dstBuffer, nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT, nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT);
+
+			emitBarrierCmd();
+
+			cmdbuf->copyBuffer(srcBuffer->getBuffer(), dstBuffer->getBuffer(), regionCount, pRegions);
+		}
+
+		void copyBufferToImage(BufferResource* const srcBuffer, ImageResource* const dstImage, const uint32_t regionCount, const nbl::video::IGPUImage::SBufferCopy* const pRegions)
+		{
+			m_resources.addResource(refctd<Resource>(srcBuffer));
+			m_resources.addResource(refctd<Resource>(dstImage));
+
+			pushBarrier(srcBuffer, nbl::asset::ACCESS_FLAGS::TRANSFER_READ_BIT, nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT);
+			pushBarrier(dstImage, nbl::asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT, nbl::asset::PIPELINE_STAGE_FLAGS::COPY_BIT, nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL);
+
+			emitBarrierCmd();
+
+			cmdbuf->copyBufferToImage(srcBuffer->getBuffer(), dstImage->getImage(), nbl::video::IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, regionCount, pRegions);
 		}
 
 		void dispatch(nbl::video::ILogicalDevice* device, EPass pass,

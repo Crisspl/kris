@@ -116,15 +116,10 @@ namespace kris
 			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
 			// cmd pool
 			m_cmdPool = m_device->createCommandPool(qFamIx,
-				nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT) |
-				nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+				nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT));
 
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
-				// cmd buffers
-				{
-					m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbufPasses[i][0],NumPasses });
-				}
 				// desc pool
 				{
 					nbl::video::IDescriptorPool::SCreateInfo ci;
@@ -341,16 +336,41 @@ namespace kris
 
 		static refctd<nbl::video::IGPURenderpass> createRenderpass(nbl::video::ILogicalDevice* device, nbl::asset::E_FORMAT format, nbl::asset::E_FORMAT depthFormat);
 
-		CommandRecorder createCommandRecorder(EPass pass)
+		// creates cmdbuf in recording state
+		refctd<nbl::video::IGPUCommandBuffer> createCommandBuffer(nbl::video::IGPUCommandBuffer::USAGE usage = nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT)
 		{
-			refctd<nbl::video::IGPUCommandBuffer>& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][pass];
-			
+			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
+			m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1U, &cmdbuf);
+			cmdbuf->begin(usage);
+			return cmdbuf;
+		}
+
+		CommandRecorder createCommandRecorder(EPass pass = EPass::NumPasses)
+		{
+			refctd<nbl::video::IGPUCommandBuffer> cmdbuf = createCommandBuffer();
+
+			if (pass != EPass::NumPasses)
+			{
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_mtlPplnLayout.get(), CameraDescSetIndex, 1U, &m_camResources.camDs.get());
+			}
+
 			return CommandRecorder(getCurrentFrameIx(), pass, std::move(cmdbuf));
 		}
 
 		SceneNodeDescriptorSet createSceneNodeDescriptorSet()
 		{
 			return SceneNodeDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_sceneNodeDsl)));
+		}
+
+		// TODO: refactor consume functions into common code
+		void consumeAsTransfer(CommandRecorder&& cmdrec)
+		{
+			CommandRecorder::Result result;
+			cmdrec.endAndObtainResources(result);
+
+			m_cmdbuf_Transfer = std::move(result.cmdbuf);
+			nbl::video::ISemaphore::SWaitInfo wi;
+			m_lifetimeTracker->latch({ .semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
 		}
 
 		void consumeAsPass(EPass pass, CommandRecorder&& cmdrec)
@@ -360,7 +380,7 @@ namespace kris
 			CommandRecorder::Result result;
 			cmdrec.endAndObtainResources(result);
 
-			m_cmdbufPasses[getCurrentFrameIx()][pass] = std::move(result.cmdbuf);
+			m_cmdbuf_Passes[pass] = std::move(result.cmdbuf);
 			nbl::video::ISemaphore::SWaitInfo wi;
 			m_lifetimeTracker->latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
 		}
@@ -380,40 +400,70 @@ namespace kris
 					return false;
 			}
 
-			for (uint32_t p = 0U; p < NumPasses; ++p)
+			// setup commands
 			{
-				auto& cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][p];
+				auto cmdbuf = createCommandBuffer();
+				
+				// bind camera ds
+				{
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_mtlPplnLayout.get(), CameraDescSetIndex, 1U, &m_camResources.camDs.get());
+				}
 
-				cmdbuf->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-				cmdbuf->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_mtlPplnLayout.get(), CameraDescSetIndex, 1U, &m_camResources.camDs.get());
-			}
+				// camera
+				{
+					nbl::asset::SBasicViewParameters camdata;
 
-			
-			{
-				nbl::asset::SBasicViewParameters camdata;
+					getCamDataContents(cam, &camdata);
 
-				getCamDataContents(cam, &camdata);
+					nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
+					range.buffer = refctd<nbl::video::IGPUBuffer>(m_camResources.camDataBuffer->getBuffer());
+					range.size = range.buffer->getSize();
 
-				nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
-				range.buffer = refctd<nbl::video::IGPUBuffer>(m_camResources.camDataBuffer->getBuffer());
-				range.size = range.buffer->getSize();
+					cmdbuf->updateBuffer(range, &camdata);
+				}
 
-				auto& firstPassCb = m_cmdbufPasses[getCurrentFrameIx()][0];
-				firstPassCb->updateBuffer(range, &camdata);
+				cmdbuf->end();
+				m_cmdbuf_Setup = std::move(cmdbuf);
 			}
 
 			return true;
 		}
 
-		nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo submit(nbl::video::IQueue* cmdq, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> flags)
+		nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo submitFrame(nbl::video::IQueue* cmdq, nbl::core::bitflag<nbl::asset::PIPELINE_STAGE_FLAGS> flags)
 		{
-			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[NumPasses];
-			for (uint32_t i = 0U; i < NumPasses; ++i)
-				cmdbufs[i].cmdbuf = m_cmdbufPasses[getCurrentFrameIx()][i].get();
+			constexpr uint32_t NumSetupCmdbufs = 1U;
+			constexpr uint32_t NumTransferCmdbufs = 1U;
+			constexpr uint32_t NumCmdbufs = NumSetupCmdbufs + NumTransferCmdbufs + NumPasses;
+			constexpr uint32_t NumNonPassCmdbufs = NumCmdbufs - NumPasses;
+
+			constexpr uint32_t SetupCmdbufIx = 0U;
+			constexpr uint32_t TransferCmdbufIx = 1U;
+
+			nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[NumCmdbufs];
+			{
+				// setup
+				{
+					KRIS_ASSERT(m_cmdbuf_Setup);
+					cmdbufs[SetupCmdbufIx].cmdbuf = m_cmdbuf_Setup.get();
+				}
+				// transfer
+				{
+					KRIS_ASSERT(m_cmdbuf_Transfer);
+					cmdbufs[TransferCmdbufIx].cmdbuf = m_cmdbuf_Transfer.get();
+				}
+				// passes
+				{
+					auto* passesInfo = cmdbufs + NumNonPassCmdbufs;
+					for (uint32_t i = 0U; i < NumPasses; ++i)
+					{
+						KRIS_ASSERT(m_cmdbuf_Passes[i]);
+						passesInfo[i].cmdbuf = m_cmdbuf_Passes[i].get();
+					}
+				}
+			}
 
 			nbl::video::IQueue::SSubmitInfo submitInfos[1] = {};
-			submitInfos[0].commandBuffers = cmdbufs;
+			submitInfos[0].commandBuffers = { cmdbufs, NumCmdbufs };
 			const nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { 
 				{	.semaphore = m_fence.get(), 
 					.value = m_currentFrameVal,
@@ -433,7 +483,7 @@ namespace kris
 			return true;
 		}
 
-		// blockFor*Frame() MUST BE CALLED BEFORE endFrame()
+		// blockFor[Current/Prev]Frame() MUST BE CALLED BEFORE endFrame()
 		bool blockForCurrentFrame()
 		{
 			return blockForFrame(m_currentFrameVal);
@@ -489,7 +539,9 @@ namespace kris
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;
 		std::unique_ptr<lifetime_tracker_t> m_lifetimeTracker;
 
-		refctd<nbl::video::IGPUCommandBuffer> m_cmdbufPasses[FramesInFlight][NumPasses];
+		refctd<nbl::video::IGPUCommandBuffer> m_cmdbuf_Setup;
+		refctd<nbl::video::IGPUCommandBuffer> m_cmdbuf_Transfer;
+		refctd<nbl::video::IGPUCommandBuffer> m_cmdbuf_Passes[NumPasses];
 
 		// camera ds resources
 		struct {
