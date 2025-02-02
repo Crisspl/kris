@@ -116,11 +116,13 @@ namespace kris
 			m_fence = m_device->createSemaphore(FenceInitialVal);
 			m_lifetimeTracker = std::make_unique<lifetime_tracker_t>(m_device.get());
 			// cmd pool
-			m_cmdPool = m_device->createCommandPool(qFamIx,
-				nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT));
 
 			for (uint32_t i = 0U; i < FramesInFlight; ++i)
 			{
+				//cmd pools
+				m_cmdPool[i] = m_device->createCommandPool(qFamIx,
+					nbl::core::bitflag<nbl::video::IGPUCommandPool::CREATE_FLAGS>(nbl::video::IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT));
+
 				// desc pool
 				{
 					nbl::video::IDescriptorPool::SCreateInfo ci;
@@ -351,7 +353,7 @@ namespace kris
 		refctd<nbl::video::IGPUCommandBuffer> createCommandBuffer(nbl::video::IGPUCommandBuffer::USAGE usage = nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT)
 		{
 			refctd<nbl::video::IGPUCommandBuffer> cmdbuf;
-			m_cmdPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1U, &cmdbuf);
+			m_cmdPool[getCurrentFrameIx()]->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1U, &cmdbuf);
 			cmdbuf->begin(usage);
 			return cmdbuf;
 		}
@@ -373,27 +375,16 @@ namespace kris
 			return SceneNodeDescriptorSet(m_descPool[0]->createDescriptorSet(refctd(m_sceneNodeDsl)));
 		}
 
-		// TODO: refactor consume functions into common code
 		void consumeAsTransfer(CommandRecorder&& cmdrec)
 		{
-			CommandRecorder::Result result;
-			cmdrec.endAndObtainResources(result);
-
-			m_cmdbuf_Transfer = std::move(result.cmdbuf);
-			nbl::video::ISemaphore::SWaitInfo wi;
-			m_lifetimeTracker->latch({ .semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
+			consume_common(m_cmdbuf_Transfer, std::move(cmdrec));
 		}
 
 		void consumeAsPass(EPass pass, CommandRecorder&& cmdrec)
 		{
 			KRIS_ASSERT(pass == cmdrec.pass);
 
-			CommandRecorder::Result result;
-			cmdrec.endAndObtainResources(result);
-
-			m_cmdbuf_Passes[pass] = std::move(result.cmdbuf);
-			nbl::video::ISemaphore::SWaitInfo wi;
-			m_lifetimeTracker->latch({.semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
+			consume_common(m_cmdbuf_Passes[pass], std::move(cmdrec));
 		}
 
 		bool beginFrame(const Camera* cam)
@@ -410,6 +401,8 @@ namespace kris
 				if (m_device->blockForSemaphores(wi) != nbl::video::ISemaphore::WAIT_RESULT::SUCCESS)
 					return false;
 			}
+
+			m_cmdPool[getCurrentFrameIx()]->reset();
 
 			// setup commands
 			{
@@ -509,6 +502,16 @@ namespace kris
 		uint64_t getCurrentFrameIx() const { return m_currentFrameVal % FramesInFlight; }
 
 	private:
+		void consume_common(refctd<nbl::video::IGPUCommandBuffer>& dstcmdbuf, CommandRecorder&& cmdrec)
+		{
+			CommandRecorder::Result result;
+			cmdrec.endAndObtainResources(result);
+
+			dstcmdbuf = std::move(result.cmdbuf);
+			nbl::video::ISemaphore::SWaitInfo wi;
+			m_lifetimeTracker->latch({ .semaphore = m_fence.get(), .value = m_currentFrameVal }, std::move(result.resources));
+		}
+
 		void getCamDataContents(const Camera* cam, nbl::asset::SBasicViewParameters* camdata)
 		{
 			const auto viewMatrix = cam->getViewMatrix();
@@ -529,6 +532,7 @@ namespace kris
 			memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
 			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
 		}
+
 		bool blockForFrame(uint64_t val)
 		{
 			const nbl::video::ISemaphore::SWaitInfo waitInfos[1] = { {
@@ -545,7 +549,7 @@ namespace kris
 
 		refctd<nbl::video::ISemaphore> m_fence;
 
-		refctd<nbl::video::IGPUCommandPool> m_cmdPool;
+		refctd<nbl::video::IGPUCommandPool> m_cmdPool[FramesInFlight];
 		refctd<nbl::video::IDescriptorPool> m_descPool[FramesInFlight];
 		std::unique_ptr<ResourceUtils> m_rsrcUtils[FramesInFlight];
 		using lifetime_tracker_t = nbl::video::MultiTimelineEventHandlerST<DeferredAllocDeletion, false>;

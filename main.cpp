@@ -536,7 +536,7 @@ class KrisTestApp final : public examples::SimpleWindowedApplication
 
 					cmdrec.drawSceneNode(m_device.get(), kris::BasePass, m_scenenode.get());
 
-					cmdrec.endRenderPass();
+					cmdrec.endRenderPass(m_Renderer.getFramebuffer(kris::BasePass, m_currImgAcq), true);
 				}
 
 				m_Renderer.consumeAsPass(kris::BasePass, std::move(cmdrec));

@@ -14,7 +14,7 @@ namespace kris::base_pass
 			/*.loadOp = */nbl::video::IGPURenderpass::LOAD_OP::CLEAR,
 			/*.storeOp = */nbl::video::IGPURenderpass::STORE_OP::STORE,
 			/*.initialLayout = */nbl::video::IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-			/*.finalLayout = */ nbl::video::IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
+			/*.finalLayout = */ nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL
 		}},
 		nbl::video::IGPURenderpass::SCreationParams::ColorAttachmentsEnd
 		};
@@ -85,7 +85,7 @@ namespace kris::base_pass
 		params.depthStencilAttachments = depthAttachments;
 		params.subpasses = subpasses;
 		params.colorAttachments = colorAttachments;
-		params.dependencies = dependencies;
+		params.dependencies = nullptr;// dependencies;
 
 		return device->createRenderpass(params);
 	}

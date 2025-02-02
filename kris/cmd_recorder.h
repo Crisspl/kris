@@ -161,6 +161,10 @@ namespace kris
 			const nbl::video::IGPUCommandBuffer::SClearDepthStencilValue& cleardepth,
 			const Framebuffer& fb)
 		{
+			constexpr auto PIPELINE_STAGE_FRAGMENT_TESTS_BITS = 
+				nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | 
+				nbl::asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT;
+
 			const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
 			{
 				.framebuffer = fb.m_fb.get(),
@@ -171,19 +175,39 @@ namespace kris
 
 			for (uint32_t i = 0U; i < fb.m_colorCount; ++i)
 			{
+				pushBarrier(fb.m_colors[i].get(), 
+					nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT, 
+					nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT, 
+					nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL);
 				m_resources.addResource(refctd(fb.m_colors[i]));
 			}
 			if (fb.m_depth)
 			{
+				pushBarrier(fb.m_depth.get(),
+					nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+					PIPELINE_STAGE_FRAGMENT_TESTS_BITS,
+					nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL);
 				m_resources.addResource(refctd(fb.m_depth));
 			}
+
+			emitBarrierCmd();
 
 			cmdbuf->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		}
 
-		void endRenderPass()
+		void endRenderPass(const Framebuffer& fb, bool toBePresented, uint32_t colorToPresent = 0U)
 		{
 			cmdbuf->endRenderPass();
+
+			if (toBePresented)
+			{
+				pushBarrier(fb.m_colors[colorToPresent].get(),
+					nbl::asset::ACCESS_FLAGS::NONE,
+					nbl::asset::PIPELINE_STAGE_FLAGS::NONE,
+					nbl::video::IGPUImage::LAYOUT::PRESENT_SRC);
+
+				emitBarrierCmd();
+			}
 		}
 
 	private:
@@ -255,6 +279,15 @@ namespace kris
 				auto* const image = b.image;
 				auto& dst = ibarriers[i];
 
+				const nbl::asset::E_FORMAT format = image->getImage()->getCreationParameters().format;
+				nbl::core::bitflag<nbl::video::IGPUImage::E_ASPECT_FLAGS> aspect = nbl::video::IGPUImage::EAF_NONE;
+				if (nbl::asset::isDepthOnlyFormat(format))
+					aspect = nbl::video::IGPUImage::EAF_DEPTH_BIT;
+				else if (nbl::asset::isDepthOrStencilFormat(format))
+					aspect = nbl::core::bitflag<nbl::video::IGPUImage::E_ASPECT_FLAGS>(nbl::video::IGPUImage::EAF_DEPTH_BIT) | nbl::video::IGPUImage::EAF_STENCIL_BIT;
+				else
+					aspect = nbl::video::IGPUImage::EAF_COLOR_BIT;
+
 				dst = {
 					.barrier = {
 						.dep = {
@@ -267,7 +300,7 @@ namespace kris
 					},
 					.image = image->getImage(),
 					.subresourceRange = {
-						.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT, // TODO
+						.aspectMask = aspect,
 						// all the mips
 						.baseMipLevel = 0,
 						.levelCount = image->getImage()->getCreationParameters().mipLevels,
