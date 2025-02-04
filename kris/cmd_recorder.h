@@ -165,6 +165,31 @@ namespace kris
 				nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | 
 				nbl::asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT;
 
+			nbl::video::IGPURenderpass* const renderpass = fb.m_fb->getCreationParameters().renderpass.get();
+
+			for (uint32_t i = 0U; i < fb.m_colorCount; ++i)
+			{
+				auto& desc = renderpass->getCreationParameters().colorAttachments[i];
+
+				pushBarrier(fb.m_colors[i].get(), 
+					nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT, 
+					nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT, 
+					desc.initialLayout);
+				m_resources.addResource(refctd(fb.m_colors[i]));
+			}
+			if (fb.m_depth)
+			{
+				auto& desc = renderpass->getCreationParameters().depthStencilAttachments[0];
+
+				pushBarrier(fb.m_depth.get(),
+					nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+					PIPELINE_STAGE_FRAGMENT_TESTS_BITS,
+					desc.initialLayout.depth);
+				m_resources.addResource(refctd(fb.m_depth));
+			}
+
+			emitBarrierCmd();
+
 			const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
 			{
 				.framebuffer = fb.m_fb.get(),
@@ -173,31 +198,27 @@ namespace kris
 				.renderArea = area
 			};
 
-			for (uint32_t i = 0U; i < fb.m_colorCount; ++i)
-			{
-				pushBarrier(fb.m_colors[i].get(), 
-					nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT, 
-					nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT, 
-					nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL);
-				m_resources.addResource(refctd(fb.m_colors[i]));
-			}
-			if (fb.m_depth)
-			{
-				pushBarrier(fb.m_depth.get(),
-					nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-					PIPELINE_STAGE_FRAGMENT_TESTS_BITS,
-					nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL);
-				m_resources.addResource(refctd(fb.m_depth));
-			}
-
-			emitBarrierCmd();
-
 			cmdbuf->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		}
 
 		void endRenderPass(const Framebuffer& fb, bool toBePresented, uint32_t colorToPresent = 0U)
 		{
 			cmdbuf->endRenderPass();
+
+			nbl::video::IGPURenderpass* const renderpass = fb.m_fb->getCreationParameters().renderpass.get();
+
+			for (uint32_t i = 0U; i < fb.m_colorCount; ++i)
+			{
+				auto& desc = renderpass->getCreationParameters().colorAttachments[i];
+
+				fb.m_colors[i]->layout = desc.finalLayout;
+			}
+			if (fb.m_depth)
+			{
+				auto& desc = renderpass->getCreationParameters().depthStencilAttachments[0];
+
+				fb.m_depth->layout = desc.finalLayout.depth;
+			}
 
 			if (toBePresented)
 			{
@@ -350,7 +371,7 @@ namespace kris
 				.srcstages = image->lastStages,
 				.dststages = stages,
 				.srclayout = image->layout,
-				.dstlayout = layout
+				.dstlayout = (layout == nbl::video::IGPUImage::LAYOUT::UNDEFINED) ? image->layout : layout
 				});
 		}
 
@@ -377,7 +398,7 @@ namespace kris
 			{
 				ib.image->lastAccesses = ib.dstaccess;
 				ib.image->lastStages = ib.dststages;
-				if (isBarrierNeededCommon(ib.srcaccess, ib.dstaccess) || ib.srclayout != ib.dstlayout)
+				if (isBarrierNeededCommon(ib.srcaccess, ib.srclayout, ib.dstaccess, ib.dstlayout))
 				{
 					images[count.image++] = ib;
 
@@ -403,11 +424,19 @@ namespace kris
 			ImageBarrier* getImagesPtr() { return images + count.image; }
 
 		private:
-			bool isBarrierNeededCommon(nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess, nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstAccess)
+			bool isBarrierNeededCommon(nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess, nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess)
 			{
-				KRIS_UNUSED_PARAM(dstAccess);
+				KRIS_UNUSED_PARAM(dstaccess);
 
 				return srcaccess.hasAnyFlag(nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS);
+			}
+			bool isBarrierNeededCommon(
+				nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> srcaccess, nbl::video::IGPUImage::LAYOUT srclayout,
+				nbl::core::bitflag<nbl::asset::ACCESS_FLAGS> dstaccess, nbl::video::IGPUImage::LAYOUT dstlayout)
+			{
+				if (srclayout != dstlayout)
+					return true;
+				return isBarrierNeededCommon(srcaccess, dstaccess);
 			}
 		} m_barriers;
 		DeferredAllocDeletion m_resources;
